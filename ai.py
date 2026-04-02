@@ -833,6 +833,117 @@ LOCATION_COORDINATES = {
         4.7110,
         -74.0721,
     ),  # Using Bogota coordinates as primary
+    "N/A": (0.0, 0.0),  # Unknown/placeholder
+    "RO, Virtual": (44.4268, 26.1025),  # Bucharest
+    "SK, Virtual": (48.1486, 17.1077),  # Bratislava
+    "Aachen": (50.7764, 6.0839),
+    "CA, ON, Hamilton": (43.2561, -79.8729),
+    "Cheltenham": (51.8996, -2.0712),
+    "FI, Tampere": (61.4978, 23.7616),
+    "Ljubljana, Slovenia": (46.0500, 14.5069),
+    "PR, Dorado": (18.4317, -66.2797),
+    "St Albans": (51.7531, -0.3380),
+    "TR, Ankara": (39.9208, 32.8540),
+    "Armenia, Yerevan": (40.1777, 44.5126),
+    "CA, AB, Nisku": (53.3333, -113.5333),
+    "CA, ON, Barrhaven": (45.2802, -75.7597),
+    "CZ, Virtual": (50.0755, 14.4378),  # Prague
+    "Chandler, AZ": (33.3062, -111.8412),
+    "Changsha": (28.1988, 112.9709),
+    "Edmonton": (53.5462, -113.4912),
+    "Fayetteville, NC": (35.0526, -78.8783),
+    "Highland Park": (42.1837, -87.7993),
+    "Hillsboro, OR": (45.5229, -122.9898),
+    "Morumbi": (-23.5974, -46.7068),
+    "Nashville": (36.1623, -86.7743),
+    "Newark, CA": (37.5297, -122.0402),
+    "OEZ": (48.1833, 11.5350),
+    "Porto": (41.1502, -8.6103),
+    "Umeda": (34.7034, 135.4976),
+    "Valencia, NM": (34.7326, -106.8504),
+    "4th Street": (37.8619, -122.2981),
+    "Abuja": (9.0643, 7.4893),
+    "Akasya": (41.0016, 29.0548),  # Akasya AVM, Istanbul
+    "Al Mubarraz": (25.4100, 49.5808),
+    "Albany, NZ": (-36.7279, 174.7086),
+    "Anchorage": (61.2163, -149.8949),
+    "Anjou": (45.3462, 4.8815),
+    "Antara": (19.4389, -99.2023),  # Antara Polanco, Mexico City
+    "Anyang-si, Gyeonggi-do, South Korea": (37.3939, 126.9571),
+    "Aventura": (25.9565, -80.1392),
+    "BKC": (19.0671, 72.8657),  # Bandra Kurla Complex, Mumbai
+    "Bad Duerrheim": (48.0222, 8.5300),
+    "Botany": (-33.9478, 151.1991),
+    "Boylston Street": (42.3516, -71.0719),
+    "Bunbury": (-33.3268, 115.6367),
+    "CA, BC, Victoria": (48.4283, -123.3650),
+    "CA, NS, Dartmouth": (44.6800, -63.5720),
+    "CA, ON, Oakville": (43.4474, -79.6667),
+    "CA, ON, Richmond Hill": (43.8801, -79.4393),
+    "CA, ON, Scarborough": (43.7730, -79.2576),
+    "Cairns": (-16.9207, 145.7722),
+    "Campania": (40.8607, 14.8440),
+    "Centennial": (39.5792, -104.8769),
+    "Churchill Square": (53.5440, -113.4898),  # Edmonton
+    "Clarendon": (38.8871, -77.0952),  # Arlington, VA
+    "Cloverdale": (38.8065, -123.0179),
+    "Dietikon": (47.4051, 8.4031),
+    "Eastview": (43.0293, -77.4466),  # Victor, NY
+    "Fairfax": (38.8462, -77.3064),
+    "Ghent": (51.0538, 3.7250),
+    "Glendale": (34.1469, -118.2478),
+    "Gothenburg": (57.7072, 11.9670),
+    "Grenoble": (45.1876, 5.7358),
+    "Guayaquil, Ecuador": (-2.1901, -79.8869),
+    "Haarlem": (52.3837, 4.6436),
+    "Hanam-Si": (37.5393, 127.2149),
+    "Hebbal": (13.0382, 77.5919),
+    "Hobart": (-42.8825, 147.3281),
+    "Holyoke": (42.2071, -72.6076),
+    "Hounslow": (51.4686, -0.3613),
+    "JO, Jordan": (31.1667, 36.9416),
+    "Japan, Aichi-ken, Nagoya": (35.1851, 136.8998),
+    "Joondalup": (-31.7796, 115.7647),
+    "Kiel": (54.3227, 10.1356),
+    "Kurfürstendamm": (52.5036, 13.3299),
+    "Kyoto": (35.0116, 135.7681),
+    "La Vaguada": (40.4800, -3.7066),  # Madrid
+    "Michigan Avenue": (41.8893, -87.6252),  # Chicago
+    "MixC Zhengzhou": (34.7561, 113.6558),
+    "Newark, OH": (40.0581, -82.4013),
+    "Nong Hai, Mueang Udon Thani District, Udon Thani, Thailand": (
+        17.6722,
+        103.2024,
+    ),
+    "Opéra": (48.8706, 2.3323),
+    "Oxmoor": (38.2472, -85.6103),  # Louisville
+    "Pacific Centre": (49.2822, -123.1195),  # Vancouver
+    "Palto Alto, California": (37.4443, -122.1598),  # Palo Alto, CA
+    "Perth": (-31.9559, 115.8606),
+    "Perú": (-6.8700, -75.0459),
+    "Pohang": (36.0189, 129.3429),
+    "Raanana": (32.1860, 34.8678),
+    "Reno": (39.5262, -119.8127),
+    "Richmond Hill": (43.8801, -79.4393),
+    "Richmond, VA": (37.5385, -77.4343),
+    "Roermond": (51.1934, 5.9883),
+    "Rotterdam": (51.9244, 4.4778),
+    "Short Pump Town Center": (37.6561, -77.6199),
+    "Spartanburg, SC": (34.9498, -81.9320),
+    "St. John's Town Center": (30.2586, -81.5263),
+    "TR, Kocaeli": (40.8217, 29.9507),
+    "The Greene": (39.6942, -84.1024),  # Beavercreek, OH
+    "Trondheim": (63.4304, 10.3952),
+    "U.S.": (39.8283, -98.5795),  # US center
+    "Uruguay": (-32.8756, -56.0202),
+    "Utrecht": (52.0907, 5.1216),
+    "Valencia": (39.4697, -0.3763),
+    "Verona": (45.4425, 10.9857),
+    "Wantirna South": (-37.8738, 145.2217),
+    "Wollongong": (-34.4244, 150.8938),
+    "Xanadu": (42.3598, 116.1798),
+    "Zhengzhou": (34.7473, 113.6193),
+    "n/a": (0.0, 0.0),  # Unknown/placeholder
     # Missing locations from terminal output
     "Beaverton": (45.4871, -122.8038),
     "Beaverton, Oregon": (45.4871, -122.8038),
@@ -913,6 +1024,35 @@ LOCATION_COORDINATES = {
     "SA, Jeddah": (21.4858, 39.1925),
     "Jeddah": (21.4858, 39.1925),
     "Jeddah, Saudi Arabia": (21.4858, 39.1925),
+    # Austria
+    "AT, Klagenfurt": (46.6247, 14.3053),
+    "Klagenfurt, Austria": (46.6247, 14.3053),
+    "Klagenfurt": (46.6247, 14.3053),
+    "AT, Premstätten": (46.9667, 15.4000),
+    "Premstätten, Austria": (46.9667, 15.4000),
+    "Premstätten": (46.9667, 15.4000),
+    # China
+    "CN, 21, Dalian": (38.9140, 121.6147),
+    "Dalian, China": (38.9140, 121.6147),
+    "Dalian": (38.9140, 121.6147),
+    "CN, 64, Zhongwei": (37.5147, 105.1964),
+    "Zhongwei, China": (37.5147, 105.1964),
+    "Zhongwei": (37.5147, 105.1964),
+    # Kazakhstan
+    "Almaty, Kazakhstan": (43.2220, 76.8512),
+    "Almaty": (43.2220, 76.8512),
+    # Belgium
+    "BE, Hamme": (51.0833, 4.1333),
+    "Hamme, Belgium": (51.0833, 4.1333),
+    "Hamme": (51.0833, 4.1333),
+    # Egypt
+    "EG, Giza": (30.0131, 31.2089),
+    "Giza, Egypt": (30.0131, 31.2089),
+    "Giza": (30.0131, 31.2089),
+    # Morocco
+    "MA, Rabat": (34.0209, -6.8416),
+    "Rabat, Morocco": (34.0209, -6.8416),
+    "Rabat": (34.0209, -6.8416),
 }
 
 
@@ -1073,24 +1213,34 @@ def get_coordinates(location: str) -> Tuple[Optional[float], Optional[float]]:
             if key.lower() == base_location.lower():
                 return lat, lon
 
-    # Try to match if location contains the key
+    # Try to match if location contains the key (with word boundary matching)
     for key, (lat, lon) in LOCATION_COORDINATES.items():
         key_lower = key.lower()
         # Check if the key city name is in the location
         city_name = key_lower.split(",")[0].strip()
-        if city_name in location_lower or location_lower in key_lower:
+        # Require minimum 3 chars to avoid false matches from country codes like "ES", "IT", "FR"
+        # Use word boundary matching to prevent "es" matching "United States"
+        if len(city_name) >= 3 and re.search(
+            rf"\b{re.escape(city_name)}\b", location_lower
+        ):
+            return lat, lon
+        # Also check if full location is contained in key (case-insensitive)
+        if location_lower in key_lower:
             return lat, lon
 
     # Try to extract city from office location
     extracted_city = extract_city_from_office_location(location_str)
     if extracted_city:
+        extracted_city_lower = extracted_city.lower()
         # Try to match the extracted city
         for key, (lat, lon) in LOCATION_COORDINATES.items():
             key_lower = key.lower()
             city_name = key_lower.split(",")[0].strip()
-            if (
-                city_name == extracted_city.lower()
-                or extracted_city.lower() in key_lower
+            # Exact match on city name, or extracted city found in key with word boundary
+            if city_name == extracted_city_lower:
+                return lat, lon
+            if len(extracted_city_lower) >= 3 and re.search(
+                rf"\b{re.escape(extracted_city_lower)}\b", key_lower
             ):
                 return lat, lon
 
@@ -1332,6 +1482,7 @@ AI_COMPANIES_DEFAULT = {
     "meta": None,
     "apple": None,
     "uber": None,
+    "tiktok": None,
 }
 
 AI_COMPANIES_FILE = ROOT_DIR / "ai_companies.json"
@@ -1374,7 +1525,7 @@ def save_ai_companies(mapping: Dict[str, Optional[str]]) -> None:
 # ATS configurations
 ATS_CONFIGS = {
     "ashby": {
-        "companies_csv": ROOT_DIR / "ashby" / "companies.csv",
+        "companies_csv": ROOT_DIR / "ashby" / "ashby_companies.csv",
         "companies_dir": ROOT_DIR / "ashby" / "companies",
         "url_column": "url",
         "name_column": "name",
@@ -1537,7 +1688,8 @@ def normalize_company_name(name: str) -> str:
     ]:
         if name.endswith(suffix):
             name = name[: -len(suffix)].strip()
-    return name.lower()
+    # Lowercase and remove spaces for better matching
+    return name.lower().replace(" ", "")
 
 
 def find_companies_by_name(
@@ -3143,36 +3295,44 @@ def gather_special_source_jobs(company_names: List[str]) -> List[Dict]:
     jobs: List[Dict] = []
     normalized_map = {normalize_company_name(name): name for name in company_names}
 
+    # Companies that should only use cached data (no scraping)
+    cache_only_companies = {"amazon", "google", "meta", "apple", "microsoft", "nvidia"}
+
     special_sources = {
         "google": {
             "module": "google.main",
             "scrape_func": "scrape_google_jobs",
             "extract_func": extract_google_jobs,
             "company_name": "Google",
+            "json_path": ROOT_DIR / "google" / "google.json",
         },
         "microsoft": {
             "module": "microsoft.main",
             "scrape_func": "scrape_microsoft_jobs",
             "extract_func": extract_microsoft_jobs,
             "company_name": "Microsoft",
+            "json_path": ROOT_DIR / "microsoft" / "microsoft.json",
         },
         "nvidia": {
             "module": "nvidia.main",
             "scrape_func": "scrape_nvidia_jobs",
             "extract_func": extract_nvidia_jobs,
             "company_name": "NVIDIA",
+            "json_path": ROOT_DIR / "nvidia" / "nvidia.json",
         },
         "amazon": {
             "module": "amazon.main",
             "scrape_func": "scrape_amazon_jobs",
             "extract_func": extract_amazon_jobs,
             "company_name": "Amazon",
+            "json_path": ROOT_DIR / "amazon" / "amazon.json",
         },
         "meta": {
             "module": "meta.main",
             "scrape_func": "scrape_meta",
             "extract_func": extract_meta_jobs,
             "company_name": "Meta",
+            "json_path": ROOT_DIR / "meta" / "meta.json",
         },
         "tiktok": {
             "module": "tiktok.main",
@@ -3191,6 +3351,7 @@ def gather_special_source_jobs(company_names: List[str]) -> List[Dict]:
             "scrape_func": "scrape_apple_jobs",
             "extract_func": extract_apple_jobs,
             "company_name": "Apple",
+            "json_path": ROOT_DIR / "apple" / "apple.json",
         },
         "uber": {
             "module": "uber.main",
@@ -3205,14 +3366,27 @@ def gather_special_source_jobs(company_names: List[str]) -> List[Dict]:
             continue
         cfg = special_sources[normalized_name]
         try:
-            module = __import__(cfg["module"], fromlist=[cfg["scrape_func"]])
-            scrape_func = getattr(module, cfg["scrape_func"])
-            json_path_str, _, _ = scrape_func(force=False)
-            if json_path_str:
-                json_path = Path(json_path_str)
-                if json_path.exists():
+            # For cache-only companies (Amazon, Google, Meta, Apple, Microsoft, NVIDIA), use cached data only
+            if normalized_name in cache_only_companies:
+                json_path = cfg.get("json_path")
+                if json_path and json_path.exists():
                     extract_func = cfg["extract_func"]
                     jobs.extend(extract_func(json_path, cfg["company_name"]))
+                    print(f"  Using cached data for {cfg['company_name']}")
+                else:
+                    print(
+                        f"  ⚠️  No cached data found for {cfg['company_name']}, skipping..."
+                    )
+            else:
+                # For other companies, call scrape function (with force=False)
+                module = __import__(cfg["module"], fromlist=[cfg["scrape_func"]])
+                scrape_func = getattr(module, cfg["scrape_func"])
+                json_path_str, _, _ = scrape_func(force=False)
+                if json_path_str:
+                    json_path = Path(json_path_str)
+                    if json_path.exists():
+                        extract_func = cfg["extract_func"]
+                        jobs.extend(extract_func(json_path, cfg["company_name"]))
         except Exception as e:
             print(
                 f"Error gathering {cfg['company_name']} jobs: {e}",
@@ -3414,8 +3588,8 @@ def main():
     parser.add_argument(
         "--output",
         "-o",
-        default="map/public/ai.csv",
-        help="Output CSV file path (default: map/public/ai.csv)",
+        default="../map/public/ai.csv",
+        help="Output CSV file path (default: ../map/public/ai.csv)",
     )
     args = parser.parse_args()
 
@@ -3615,7 +3789,7 @@ def main():
     # Write to CSV (make path relative to script directory if not absolute)
     output_path = Path(args.output)
     if not output_path.is_absolute():
-        output_path = ROOT_DIR / output_path
+        output_path = (ROOT_DIR / output_path).resolve()
     # Ensure output directory exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
