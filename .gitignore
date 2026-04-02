@@ -49,3 +49,32 @@ map/**
 **/*.html
 **/jobs_old.csv
 rm_ai.csv
+
+bloomberg
+**.backup
+scripts/**
+yc
+uber/uber.json
+
+# External tools
+searxng-docker/
+
+# Temp/scratch files
+tiktok/Untitled
+personio/f.csv
+
+# Discovery guides (generated)
+CONTINUOUS_DISCOVERY_GUIDE.md
+DISCOVERY_ENHANCEMENTS.md
+XANALYSIS.md
+
+# HAR analysis scripts (contain local paths)
+phenom/phenom_jobs_api/analyze_har*.py
+
+# Test/exploration scripts
+avature/test_*.py
+avature/inspect_*.py
+avature/find_*.py
+apple/test_*.py
+oracle/scripts/oracle_ats_client/test_client.py
+phenom/phenom_jobs_api/test_api.py
