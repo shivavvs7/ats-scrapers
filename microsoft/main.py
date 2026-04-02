@@ -15,6 +15,7 @@ DETAILS_ENDPOINT = f"{BASE_URL}/api/pcsx/position_details"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 OUTPUT_FILE = SCRIPT_DIR / "microsoft.json"
+DESCRIPTION_CACHE_FILE = SCRIPT_DIR / "description_cache.json"
 
 PAGE_SIZE = 10  # Use API's supported page size
 MAX_RETRIES = 3
@@ -38,12 +39,64 @@ def load_output():
     return {"last_scraped": None, "company": COMPANY, "count": 0, "jobs": []}
 
 
+def load_description_cache():
+    """Load persistent description cache from separate file"""
+    if DESCRIPTION_CACHE_FILE.exists():
+        try:
+            with open(DESCRIPTION_CACHE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"⚠️  Warning: Could not load description cache: {e}")
+            return {}
+    return {}
+
+
+def save_description_cache(cache):
+    """Atomically save description cache to separate file"""
+    temp_file = DESCRIPTION_CACHE_FILE.with_suffix('.json.tmp')
+    try:
+        # Write to temporary file first
+        with open(temp_file, "w", encoding="utf-8") as f:
+            json.dump(cache, f, indent=2, ensure_ascii=False)
+
+        # Atomic replace
+        temp_file.replace(DESCRIPTION_CACHE_FILE)
+    except Exception as e:
+        print(f"⚠️  Warning: Could not save description cache: {e}")
+        if temp_file.exists():
+            temp_file.unlink()
+
+
 def write_output(data):
+    """Atomically write output with backup to prevent data loss"""
     data["last_scraped"] = datetime.now(timezone.utc).isoformat()
     data["count"] = len(data["jobs"])
 
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    temp_file = OUTPUT_FILE.with_suffix('.json.tmp')
+    backup_file = OUTPUT_FILE.with_suffix('.json.backup')
+
+    try:
+        # Write to temporary file first
+        with open(temp_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+        # Create backup of existing file if it exists
+        if OUTPUT_FILE.exists():
+            OUTPUT_FILE.replace(backup_file)
+
+        # Atomic replace with new data
+        temp_file.replace(OUTPUT_FILE)
+
+    except Exception as e:
+        print(f"❌ Error writing output: {e}")
+        # Restore from backup if something went wrong
+        if backup_file.exists() and not OUTPUT_FILE.exists():
+            backup_file.replace(OUTPUT_FILE)
+        raise
+    finally:
+        # Clean up temp file if it still exists
+        if temp_file.exists():
+            temp_file.unlink()
 
 
 def ts_to_date(ts):
@@ -178,22 +231,11 @@ def fetch_job_details(position_id):
 
 
 def main():
-    print("▶ Starting scrape (caching enabled for performance)")
+    print("▶ Starting scrape (persistent caching enabled for performance)")
 
-    # Load existing data for description caching
-    existing_data = load_output()
-    description_cache = {}
-
-    if existing_data.get("jobs"):
-        print(f"📦 Loading {len(existing_data['jobs'])} cached job descriptions...")
-        for job in existing_data["jobs"]:
-            job_id = job.get("eightfold_id")
-            if job_id and job.get("description"):
-                description_cache[job_id] = {
-                    "description": job["description"],
-                    "standardized_locations": job.get("standardized_locations"),
-                }
-        print(f"✓ Cached {len(description_cache)} job descriptions")
+    # Load persistent description cache from separate file
+    description_cache = load_description_cache()
+    print(f"📦 Loaded {len(description_cache)} cached job descriptions from persistent cache")
 
     # Step 1: Fetch all job listings (fast, just metadata)
     print("\n🔍 Step 1: Fetching all job listings (metadata only)...")
@@ -226,8 +268,9 @@ def main():
             time.sleep(RATE_LIMIT_DELAY)
 
         except KeyboardInterrupt:
-            print("\n⏹️  Interrupted by user")
-            break
+            print("\n⏹️  Interrupted by user during job listing fetch")
+            print("✓ Keeping existing microsoft.json (no partial data saved)")
+            return
         except Exception as e:
             print(f"❌ Error fetching page: {e}")
             break
@@ -262,9 +305,10 @@ def main():
                 "url": BASE_URL + p.get("positionUrl"),
             }
 
-            # Check cache first
-            if job_id in description_cache:
-                cached_desc = description_cache[job_id]
+            # Check cache first (convert job_id to string for cache lookup)
+            cache_key = str(job_id)
+            if cache_key in description_cache:
+                cached_desc = description_cache[cache_key]
                 job_data["description"] = cached_desc["description"]
                 if cached_desc.get("standardized_locations"):
                     job_data["standardized_locations"] = cached_desc["standardized_locations"]
@@ -279,6 +323,16 @@ def main():
                     job_data["description"] = details.get("description")
                     if details.get("standardized_locations"):
                         job_data["standardized_locations"] = details["standardized_locations"]
+
+                    # Add to cache immediately (use string key)
+                    description_cache[cache_key] = {
+                        "description": details.get("description"),
+                        "standardized_locations": details.get("standardized_locations"),
+                    }
+
+                    # Save cache periodically
+                    if fetched_count % 10 == 0:
+                        save_description_cache(description_cache)
                 else:
                     job_data["description"] = None
 
@@ -289,14 +343,24 @@ def main():
             output["jobs"].append(job_data)
 
         except KeyboardInterrupt:
-            print("\n⏹️  Interrupted by user")
-            break
+            print("\n⏹️  Interrupted by user - saving progress...")
+            # Save cache and current progress before exiting
+            save_description_cache(description_cache)
+            print("✓ Description cache saved")
+            # Don't save output on interrupt - keep old data
+            print("✓ Keeping existing microsoft.json (no partial data saved)")
+            return
         except Exception as e:
             print(f"⚠️  Error processing job {job_id}: {e}")
             continue
 
+    # Save final description cache
+    save_description_cache(description_cache)
+    print("✓ Description cache saved")
+
     # Save final output
     write_output(output)
+    print("✓ Output file saved")
 
     # Final summary
     print("\n📊 Summary:")

@@ -118,9 +118,7 @@ def main():
                 )
 
     print(f"Processed {len(job_rows)} total jobs")
-    diff_path = write_jobs_csv(jobs_csv_path, job_rows)
-    if diff_path:
-        print(f"Created diff file: {diff_path.name}")
+    write_jobs_csv(jobs_csv_path, job_rows)
 
 
 if __name__ == "__main__":

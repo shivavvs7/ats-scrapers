@@ -168,7 +168,7 @@ async def scrape_ashby_jobs(
 async def scrape_all_ashby_jobs(force: bool = False):
     # Get the directory where this script is located
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    csv_path = os.path.join(script_dir, "companies.csv")
+    csv_path = os.path.join(script_dir, "ashby_companies.csv")
 
     count = 0
     successful_companies = 0

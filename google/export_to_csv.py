@@ -81,9 +81,7 @@ def main(paths: Iterable[Path] | None = None) -> None:
             job_rows.append(_job_to_row(job))
 
     print(f"Aggregated {len(job_rows)} unique jobs")
-    diff_path = write_jobs_csv(JOBS_CSV_PATH, job_rows)
-    if diff_path:
-        print(f"Created diff file: {diff_path.name}")
+    write_jobs_csv(JOBS_CSV_PATH, job_rows)
 
 
 if __name__ == "__main__":

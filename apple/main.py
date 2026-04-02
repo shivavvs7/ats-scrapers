@@ -4,6 +4,10 @@ Apple Jobs Scraper
 
 Scrapes job postings from Apple's careers website and saves them to apple.json.
 Follows the same pattern as other scrapers (google, microsoft, etc.) for easy integration.
+
+Two-phase approach:
+1. First fetch all jobs quickly (without details) and save them
+2. Then fetch job descriptions incrementally using a cache to avoid redundant work
 """
 
 import json
@@ -21,6 +25,14 @@ apple_api_client = importlib.util.module_from_spec(spec)
 sys.modules["apple_api_client"] = apple_api_client
 spec.loader.exec_module(apple_api_client)
 AppleJobsAPI = apple_api_client.AppleJobsAPI
+
+# Import cache manager
+cache_manager_path = script_dir / "cache_manager.py"
+spec = importlib.util.spec_from_file_location("cache_manager", cache_manager_path)
+cache_manager = importlib.util.module_from_spec(spec)
+sys.modules["cache_manager"] = cache_manager
+spec.loader.exec_module(cache_manager)
+JobDescriptionCache = cache_manager.JobDescriptionCache
 
 
 def scrape_apple_jobs(force: bool = False) -> tuple[str, int, bool]:
@@ -97,9 +109,15 @@ def scrape_apple_jobs(force: bool = False) -> tuple[str, int, bool]:
         except (OSError, json.JSONDecodeError) as e:
             print(f"Error reading existing Apple data: {e}. Will rescrape.")
 
-    # Initialize client and fetch jobs
-    print("Fetching all Apple jobs...")
+    # Initialize client and cache
+    print("Initializing...")
     client = AppleJobsAPI(locale="en-us")
+    cache = JobDescriptionCache()
+
+    # === PHASE 1: Fetch all jobs quickly (without details) ===
+    print("\n" + "=" * 80)
+    print("PHASE 1: Fetching all Apple jobs (basic info only)...")
+    print("=" * 80)
     all_jobs = client.search_all_jobs()
 
     if not all_jobs:
@@ -108,28 +126,16 @@ def scrape_apple_jobs(force: bool = False) -> tuple[str, int, bool]:
 
     print(f"Found {len(all_jobs)} total jobs")
 
-    # Convert Job objects to dictionaries
+    # Save basic job list immediately
     jobs_data = []
-    # Note: Detailed fetching is commented out for performance (takes too long with 6000+ jobs)
-    # Uncomment the lines below if you need full_description with minimumQualifications, etc.
-    # print(f"Fetching detailed information for {len(all_jobs)} jobs...")
-
-    for i, job in enumerate(all_jobs, 1):
-        # Fetch detailed job information (commented out for performance)
-        # job = client.get_job_details(job)
-
-        # Handle multiple locations
+    for job in all_jobs:
         locations = [loc.name for loc in job.locations] if job.locations else ["N/A"]
-
         job_dict = {
             "url": job.url,
             "title": job.postingTitle,
             "locations": locations,
-            "location": locations[0]
-            if locations
-            else "N/A",  # Keep first location for backward compatibility
-            "description": job.jobSummary,  # Use jobSummary from search results (faster)
-            # "description": job.full_description,  # Use merged description with all fields (slower, requires get_job_details)
+            "location": locations[0] if locations else "N/A",
+            "description": job.jobSummary,  # Temporary - will be replaced with full description
             "postingDate": job.postingDate,
             "positionId": job.positionId,
             "id": job.id,
@@ -137,22 +143,111 @@ def scrape_apple_jobs(force: bool = False) -> tuple[str, int, bool]:
         }
         jobs_data.append(job_dict)
 
-        if i % 50 == 0:
-            print(f"Processed {i}/{len(all_jobs)} jobs...")
-
-    # Wrap in standard format with metadata
+    # Save basic job list
     wrapped = {
         "last_scraped": datetime.now().isoformat(),
         "name": "Apple",
         "jobs": jobs_data,
     }
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(wrapped, f, indent=2, ensure_ascii=False)
+    print(f"✓ Saved {len(jobs_data)} jobs (basic info) to {json_path}")
 
-    # Save to file
+    # === PHASE 2: Fetch job descriptions with caching ===
+    print("\n" + "=" * 80)
+    print("PHASE 2: Fetching detailed job descriptions...")
+    print("=" * 80)
+
+    # Get current position IDs
+    current_position_ids = {job.positionId for job in all_jobs}
+
+    # Clean up cache for deleted jobs
+    deleted_count = cache.cleanup_deleted_jobs(current_position_ids)
+    if deleted_count > 0:
+        print(f"✓ Removed {deleted_count} deleted job(s) from cache")
+
+    # Identify jobs that need details fetching
+    jobs_needing_details = []
+    cached_count = 0
+
+    for job in all_jobs:
+        if cache.has(job.positionId):
+            # Load from cache
+            cached_details = cache.get(job.positionId)
+            job.description = cached_details['description']
+            job.minimumQualifications = cached_details['minimumQualifications']
+            job.preferredQualifications = cached_details['preferredQualifications']
+            job.payAndBenefits = cached_details['payAndBenefits']
+            cached_count += 1
+        else:
+            jobs_needing_details.append(job)
+
+    print(f"✓ Loaded {cached_count} job(s) from cache")
+    print(f"→ Need to fetch details for {len(jobs_needing_details)} job(s)")
+
+    # Fetch details for uncached jobs
+    if jobs_needing_details:
+        print(f"\nFetching details for {len(jobs_needing_details)} jobs with 50 concurrent requests...")
+        detailed_jobs = client.get_all_job_details(
+            jobs_needing_details,
+            max_concurrent=50,
+            show_progress=True
+        )
+
+        # Update cache with newly fetched details
+        for job in detailed_jobs:
+            cache.set(
+                job.positionId,
+                job.description or '',
+                job.minimumQualifications or '',
+                job.preferredQualifications or '',
+                job.payAndBenefits
+            )
+
+        # Save updated cache
+        cache.save_cache()
+        print(f"✓ Updated cache with {len(detailed_jobs)} new job detail(s)")
+    else:
+        print("✓ All jobs already cached, no new fetches needed!")
+
+    # === PHASE 3: Merge details and save final output ===
+    print("\n" + "=" * 80)
+    print("PHASE 3: Merging details and saving final output...")
+    print("=" * 80)
+
+    # Create final job data with full descriptions
+    final_jobs_data = []
+    for job in all_jobs:
+        locations = [loc.name for loc in job.locations] if job.locations else ["N/A"]
+        job_dict = {
+            "url": job.url,
+            "title": job.postingTitle,
+            "locations": locations,
+            "location": locations[0] if locations else "N/A",
+            "description": job.full_description,  # Full description with all details
+            "postingDate": job.postingDate,
+            "positionId": job.positionId,
+            "id": job.id,
+            "reqId": job.reqId,
+        }
+        final_jobs_data.append(job_dict)
+
+    # Save final output
+    wrapped = {
+        "last_scraped": datetime.now().isoformat(),
+        "name": "Apple",
+        "jobs": final_jobs_data,
+    }
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(wrapped, f, indent=2, ensure_ascii=False)
 
-    print(f"Saved {len(jobs_data)} jobs to {json_path}")
-    return json_path, len(jobs_data), True
+    print(f"✓ Saved {len(final_jobs_data)} jobs with full descriptions to {json_path}")
+    print("\n" + "=" * 80)
+    print("SCRAPING COMPLETED SUCCESSFULLY!")
+    print("=" * 80)
+    print(f"Cache stats: {len(cache)} total entries")
+
+    return json_path, len(final_jobs_data), True
 
 
 if __name__ == "__main__":

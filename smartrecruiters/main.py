@@ -65,14 +65,18 @@ def should_scrape_company(
         return True, None
 
 
-def save_company_data(file_path: str, api_data: dict) -> None:
-    """Save company data with last_scraped timestamp"""
+def save_company_data(file_path: str, api_data: dict, company_name: str = None) -> None:
+    """Save company data with last_scraped timestamp and company name"""
     api_data["last_scraped"] = datetime.now().isoformat()
+    if company_name:
+        api_data["name"] = company_name
     with open(file_path, "w") as f:
         json.dump(api_data, f, indent=2)
 
 
-async def scrape_company_jobs(company_slug: str, force: bool = False):
+async def scrape_company_jobs(
+    company_slug: str, force: bool = False, company_name: str = None
+):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     companies_dir = os.path.join(script_dir, "companies")
 
@@ -91,63 +95,138 @@ async def scrape_company_jobs(company_slug: str, force: bool = False):
         )
         # Return existing data info with skipped flag
         num_jobs = len(company_data.get("content", []))
-        return company_data, num_jobs, False  # False = not scraped (skipped)
+        return file_path, num_jobs, False  # False = not scraped (skipped)
 
     # Log decision to scrape
-    if hours_elapsed is not None:
+    if force:
+        print(f"Forcing scrape for '{company_slug}' (force=True).")
+    elif hours_elapsed is not None:
         print(
             f"Scraped {company_slug} {hours_elapsed:.1f} hours ago. I will scrape again."
         )
     elif company_data is None:
         print(f"Company '{company_slug}' data file does not exist. I will scrape.")
-    else:
+    elif not company_data.get("last_scraped"):
         print(f"Company '{company_slug}' has no last_scraped field. I will scrape.")
+    else:
+        print(f"Company '{company_slug}' last_scraped field is invalid. I will scrape.")
 
-    url = f"https://api.smartrecruiters.com/v1/companies/{company_slug}/postings"
-    print(f"Fetching {url}...")
+    base_url = f"https://api.smartrecruiters.com/v1/companies/{company_slug}/postings"
+    limit = 100  # Maximum limit per request
+    offset = 0
+    all_content = []
+    total_found = None
 
     connector = aiohttp.TCPConnector(ssl=False)
     async with aiohttp.ClientSession(connector=connector) as session:
-        attempt = 1
-        while attempt <= MAX_RETRIES:
-            try:
-                async with session.get(url) as response:
-                    if response.status == 404:
-                        print(f"Company '{company_slug}' not found (404)")
-                        return None, 0, False
+        while True:
+            url = f"{base_url}?limit={limit}&offset={offset}"
+            if offset == 0:
+                print(f"Fetching fresh data from {base_url}...")
+            else:
+                print(f"Fetching page {offset // limit + 1} (offset={offset})...")
 
-                    if response.status != 200:
-                        print(f"Error {response.status} for company '{company_slug}'")
-                        return None, 0, False
+            attempt = 1
+            page_fetched = False
+            done_paginating = False
+            
+            while attempt <= MAX_RETRIES:
+                try:
+                    async with session.get(url) as response:
+                        if response.status == 404:
+                            if offset == 0:
+                                print(f"Company '{company_slug}' not found (404)")
+                                return None, 0, False
+                            else:
+                                # If 404 on later pages, we've reached the end
+                                done_paginating = True
+                                break
 
-                    try:
-                        data = await response.json()
-                    except aiohttp.client_exceptions.ContentTypeError as e:
-                        print(f"Failed to parse JSON for company '{company_slug}': {e}")
-                        return None, 0, False
+                        if response.status != 200:
+                            if offset == 0:
+                                print(f"Error {response.status} for company '{company_slug}'")
+                                return None, 0, False
+                            else:
+                                # If error on later pages, stop pagination
+                                print(f"Error {response.status} on page {offset // limit + 1}, stopping pagination")
+                                done_paginating = True
+                                break
 
-                    # Save with last_scraped timestamp
-                    save_company_data(file_path, data)
+                        try:
+                            data = await response.json()
+                        except aiohttp.client_exceptions.ContentTypeError as e:
+                            if offset == 0:
+                                print(f"Failed to parse JSON for company '{company_slug}': {e}")
+                                return None, 0, False
+                            else:
+                                print(f"Failed to parse JSON on page {offset // limit + 1}: {e}")
+                                done_paginating = True
+                                break
 
-                    # SmartRecruiters API returns content in a 'content' field
-                    num_jobs = len(data.get("content", []))
-                    return data, num_jobs, True  # True = scraped
-            except (
-                aiohttp.client_exceptions.ClientPayloadError,
-                aiohttp.ClientError,
-                aiohttp.http_exceptions.HttpProcessingError,
-            ) as err:
-                if attempt == MAX_RETRIES:
+                        # Extract content and metadata
+                        page_content = data.get("content", [])
+                        all_content.extend(page_content)
+
+                        # Get total found on first page
+                        if total_found is None:
+                            total_found = data.get("totalFound", len(page_content))
+                            print(f"Total jobs found: {total_found}")
+
+                        page_fetched = True
+                        
+                        # Check if we've fetched all pages
+                        if len(page_content) == 0 or offset + limit >= total_found:
+                            # No more pages to fetch
+                            done_paginating = True
+                            break
+                        
+                        # Move to next page
+                        offset += limit
+                        break
+
+                except (
+                    aiohttp.client_exceptions.ClientPayloadError,
+                    aiohttp.ClientError,
+                    aiohttp.http_exceptions.HttpProcessingError,
+                ) as err:
+                    if attempt == MAX_RETRIES:
+                        print(
+                            f"Exceeded retries for '{company_slug}' page {offset // limit + 1} due to network error: {err}"
+                        )
+                        # If first page fails completely, return error
+                        if offset == 0:
+                            return None, 0, False
+                        # Otherwise, stop pagination and return what we have
+                        done_paginating = True
+                        break
+                    delay = BASE_RETRY_DELAY * attempt + random.uniform(0, 1)
                     print(
-                        f"Exceeded retries for '{company_slug}' due to network error: {err}"
+                        f"Request failed for '{company_slug}' page {offset // limit + 1} ({err}). Retrying in {delay:.1f}s..."
                     )
-                    return None, 0, False
-                delay = BASE_RETRY_DELAY * attempt + random.uniform(0, 1)
-                print(
-                    f"Request failed for '{company_slug}' ({err}). Retrying in {delay:.1f}s..."
-                )
-                await asyncio.sleep(delay)
-                attempt += 1
+                    await asyncio.sleep(delay)
+                    attempt += 1
+
+            if not page_fetched or done_paginating:
+                # Failed to fetch page after retries, or we're done paginating
+                break
+
+            # Small delay between pages to be respectful
+            await asyncio.sleep(random.uniform(0.5, 1.5))
+
+        # Combine all pages into a single response structure
+        combined_data = {
+            "content": all_content,
+            "totalFound": total_found or len(all_content),
+            "limit": limit,
+            "offset": 0,
+        }
+
+        # Save with last_scraped timestamp and company name
+        save_company_data(file_path, combined_data, company_name)
+
+        num_jobs = len(all_content)
+        print(f"Successfully fetched {num_jobs} jobs from {company_slug}")
+        return file_path, num_jobs, True  # True = scraped
 
 
 async def scrape_all_smartrecruiters_jobs(force: bool = False):
@@ -155,34 +234,38 @@ async def scrape_all_smartrecruiters_jobs(force: bool = False):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     csv_path = os.path.join(script_dir, "smartrecruiters_companies.csv")
 
-    if not os.path.exists(csv_path):
-        print(f"CSV file not found: {csv_path}")
-        return script_dir
-
     count = 0
     successful_companies = 0
     failed_companies = 0
     skipped_companies = 0
 
+    # Build a mapping from slug to company name
+    slug_to_name = {}
     with open(csv_path, "r") as f:
-        reader = csv.reader(f)
-        next(reader)  # Skip header row
-        companies = [row for row in reader if row]
+        reader = csv.DictReader(f)
+        for row in reader:
+            company_url = row["url"]
+            company_name = row["name"]
+            company_slug = extract_company_slug(company_url)
+            slug_to_name[company_slug] = company_name
 
+    companies = list(slug_to_name.keys())
     print(f"Processing {len(companies)} companies...")
 
-    for row in companies:
-        company_url = row[0]
-        company_slug = extract_company_slug(company_url)
+    for company_slug in companies:
+        company_name = slug_to_name.get(company_slug)
 
         print(f"\nProcessing company: {company_slug}")
-        data, num_jobs, was_scraped = await scrape_company_jobs(company_slug, force)
+        result, num_jobs, was_scraped = await scrape_company_jobs(
+            company_slug, force, company_name
+        )
 
-        if data is not None:
+        if result is not None:
             count += num_jobs
             if was_scraped:
                 successful_companies += 1
                 print(f"Successfully scraped {num_jobs} jobs from {company_slug}")
+                # Delay only if we scraped successfully
                 await asyncio.sleep(random.uniform(MIN_SCRAPE_DELAY, MAX_SCRAPE_DELAY))
             else:
                 skipped_companies += 1

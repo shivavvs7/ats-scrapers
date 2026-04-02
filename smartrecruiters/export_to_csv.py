@@ -9,13 +9,38 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from export_utils import generate_job_id, write_jobs_csv  # noqa: E402
-from models.ashby import AshbyApiResponse  # noqa: E402
+from models.smartrecruiters import SmartRecruitersApiResponse  # noqa: E402
+
+
+def format_location(location_obj) -> str:
+    """Format location object into a string"""
+    if not location_obj:
+        return ""
+    
+    parts = []
+    if location_obj.city:
+        parts.append(location_obj.city)
+    if location_obj.region:
+        parts.append(location_obj.region)
+    if location_obj.country:
+        parts.append(location_obj.country)
+    
+    location_str = ", ".join(parts)
+    
+    # Add remote indicator if applicable
+    if location_obj.remote:
+        if location_str:
+            location_str += " (Remote)"
+        else:
+            location_str = "Remote"
+    
+    return location_str
 
 
 def main():
     companies_dir = Path(__file__).resolve().parent / "companies"
     jobs_csv_path = Path(__file__).resolve().parent / "jobs.csv"
-    companies_csv_path = Path(__file__).resolve().parent / "ashby_companies.csv"
+    companies_csv_path = Path(__file__).resolve().parent / "smartrecruiters_companies.csv"
 
     # Build mapping from slug to company name
     slug_to_name = {}
@@ -74,21 +99,24 @@ def main():
                         company_name = slug_to_name[company_slug_lower]
                     elif decoded_slug in slug_to_name:
                         company_name = slug_to_name[decoded_slug]
-                parsed = AshbyApiResponse(**data)
+                parsed = SmartRecruitersApiResponse(**data)
             except (json.JSONDecodeError, ValidationError):
                 continue
 
-            for job in parsed.jobs:
-                url = job.job_url or job.apply_url or ""
-                ats_id = job.id
+            for posting in parsed.content:
+                url = posting.job_url or posting.applyUrl or ""
+                ats_id = posting.id or posting.uuid or ""
+                title = posting.name or ""
+                location = format_location(posting.location)
+                
                 job_rows.append(
                     {
                         "url": url,
-                        "title": job.title or "",
-                        "location": job.location or "",
+                        "title": title,
+                        "location": location,
                         "company": company_name,
                         "ats_id": ats_id or "",
-                        "id": generate_job_id("ashby", url, ats_id),
+                        "id": generate_job_id("smartrecruiters", url, ats_id),
                     }
                 )
 

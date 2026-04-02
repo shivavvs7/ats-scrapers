@@ -35,7 +35,6 @@ if str(ROOT_DIR) not in sys.path:
 from ashby.process_ashby import (
     CompanyTable,
     get_or_create_company,
-    Base,
 )
 from sqlalchemy import (
     create_engine,
@@ -46,16 +45,22 @@ from sqlalchemy import (
     DateTime,
     Float,
     Text,
+    exc,
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.orm.attributes import flag_modified
 from dotenv import load_dotenv
 
+# Create separate Base to avoid conflicts with JobTable from ashby.process_ashby
+Base = declarative_base()
 
-# Define MapJobTable for map_jobs table (minimal schema for fetch_job.py)
-class MapJobTable(Base):
-    __tablename__ = "map_jobs"
+
+# Define JobTable for jobs table (minimal schema matching actual DB schema)
+class JobTable(Base):
+    __tablename__ = "jobs"
+    __table_args__ = {"extend_existing": True}
+    
     id = Column(PGUUID(as_uuid=True), primary_key=True)
     url = Column(String, nullable=False)
     title = Column(String, nullable=False)
@@ -76,13 +81,23 @@ class MapJobTable(Base):
     source = Column(String)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=text("now()"))
+    
+    # Explicitly specify which columns to include to avoid conflicts with other JobTable definitions
+    __mapper_args__ = {
+        "include_properties": [
+            "id", "url", "title", "location", "company", "description",
+            "employment_type", "ats_type", "company_id", "posted_at",
+            "lat", "lon", "salary_min", "salary_max", "salary_currency",
+            "salary_period", "remote", "source", "is_active", "created_at"
+        ]
+    }
 
 
-def check_job_exists_by_url(session, url: str, ats_type: str, company_name: str):
-    """Check if job exists in DB by URL, ats_type, and company_name."""
+def check_job_exists_by_url(session, url: str, ats_type: str = None, company_name: str = None):
+    """Check if job exists in DB by URL (url is unique)."""
     existing = (
-        session.query(MapJobTable)
-        .filter_by(url=url, ats_type=ats_type, company=company_name)
+        session.query(JobTable)
+        .filter_by(url=url)
         .first()
     )
     return existing
@@ -942,8 +957,9 @@ def delete_removed_jobs(
             continue
 
         try:
-            # Find job in database
-            existing_job = check_job_exists_by_url(session, url, ats_type, company)
+            # Find job in database (use no_autoflush to prevent premature flushes)
+            with session.no_autoflush:
+                existing_job = check_job_exists_by_url(session, url, ats_type, company)
             if existing_job:
                 job_ids_to_delete.append(existing_job.id)
                 logger.debug(f"Marked for deletion: {existing_job.title} ({url})")
@@ -961,8 +977,8 @@ def delete_removed_jobs(
         logger.info(f"Deleting {len(job_ids_to_delete)} jobs from database")
         try:
             deleted_count = (
-                session.query(MapJobTable)
-                .filter(MapJobTable.id.in_(job_ids_to_delete))
+                session.query(JobTable)
+                .filter(JobTable.id.in_(job_ids_to_delete))
                 .delete(synchronize_session=False)
             )
             session.commit()
@@ -1145,31 +1161,31 @@ def process_jobs(
                 continue
 
             try:
-                # Check if job exists in database
+                # Check if job exists in database (use no_autoflush to prevent premature flushes)
                 existing_job = None
                 if not dry_run:
-                    existing_job = check_job_exists_by_url(
-                        session, url, ats_type, company_name
-                    )
-
-                # Fetch description from JSON file
-                description = None
-                if existing_job and existing_job.description:
-                    # Use existing description if available
-                    description = existing_job.description
-                    logger.debug(f"Using existing description for {url}")
-                else:
-                    # Fetch description if not in DB
-                    logger.info(f"Fetching description for {title} ({url})")
-                    description = fetch_job_description(
-                        company_name, ats_type, ats_id, url, dry_run
-                    )
-                    if description:
-                        logger.debug(
-                            f"Successfully fetched description ({len(description)} chars)"
+                    with session.no_autoflush:
+                        existing_job = check_job_exists_by_url(
+                            session, url, ats_type, company_name
                         )
-                    else:
-                        logger.warning(f"Could not fetch description for {url}")
+
+                # Skip existing jobs entirely - don't modify them
+                if existing_job:
+                    stats["skipped"] += 1
+                    logger.debug(f"Skipping existing job: {title} ({url})")
+                    continue
+
+                # Fetch description from JSON file (only for new jobs)
+                logger.info(f"Fetching description for {title} ({url})")
+                description = fetch_job_description(
+                    company_name, ats_type, ats_id, url, dry_run
+                )
+                if description:
+                    logger.debug(
+                        f"Successfully fetched description ({len(description)} chars)"
+                    )
+                else:
+                    logger.warning(f"Could not fetch description for {url}")
 
                 if dry_run:
                     logger.info(
@@ -1183,36 +1199,53 @@ def process_jobs(
                     csv_job, company_id, description
                 )
 
-                if existing_job:
-                    # Update existing job
-                    for key, value in db_job_dict.items():
-                        if key != "url":
-                            setattr(existing_job, key, value)
-                    existing_job.is_active = True
-                    stats["updated"] += 1
-                    logger.debug(f"Updated job: {title}")
+                # Create new job (existing jobs are skipped above)
+                # Generate ID from ats_id if available (for Ashby), otherwise generate UUID
+                job_id = None
+                if ats_type == "ashby" and ats_id:
+                    try:
+                        job_id = UUID(ats_id)
+                    except ValueError:
+                        pass
+
+                # If no ID was generated, create a new UUID
+                if job_id is None:
+                    job_id = uuid4()
+
+                new_job = JobTable(id=job_id, **db_job_dict)
+                session.add(new_job)
+                stats["new"] += 1
+                logger.debug(f"Created new job: {title}")
+
+            except exc.IntegrityError as e:
+                # Handle unique constraint violations - job might have been inserted concurrently
+                logger.warning(f"Integrity error for job {url}: {e.orig}")
+                if not dry_run:
+                    session.rollback()
+                    # Check if job exists - if so, skip it (don't update)
+                    try:
+                        with session.no_autoflush:
+                            existing_job = check_job_exists_by_url(
+                                session, url, ats_type, company_name
+                            )
+                        if existing_job:
+                            # Job exists, skip it (don't modify)
+                            stats["skipped"] += 1
+                            logger.debug(f"Skipping existing job after integrity error: {title}")
+                        else:
+                            stats["errors"] += 1
+                    except Exception as e2:
+                        logger.error(f"Error handling integrity error for {url}: {e2}")
+                        stats["errors"] += 1
                 else:
-                    # Create new job
-                    # Generate ID from ats_id if available (for Ashby), otherwise generate UUID
-                    job_id = None
-                    if ats_type == "ashby" and ats_id:
-                        try:
-                            job_id = UUID(ats_id)
-                        except ValueError:
-                            pass
-
-                    # If no ID was generated, create a new UUID
-                    if job_id is None:
-                        job_id = uuid4()
-
-                    new_job = MapJobTable(id=job_id, **db_job_dict)
-                    session.add(new_job)
-                    stats["new"] += 1
-                    logger.debug(f"Created new job: {title}")
-
+                    stats["errors"] += 1
+                continue
             except Exception as e:
                 logger.error(f"Error processing job {url}: {e}", exc_info=True)
+                if not dry_run:
+                    session.rollback()
                 stats["errors"] += 1
+                continue
 
         # Commit batch for this company
         if not dry_run:
@@ -1270,7 +1303,7 @@ def main():
         "--ai-csv",
         type=Path,
         default=None,
-        help="Path to ai.csv file (default: most recent ai-*.csv or map/public/ai.csv)",
+        help="Path to ai.csv file (default: most recent ai-*.csv or ../map/public/ai.csv)",
     )
     parser.add_argument(
         "--new-ai-csv",

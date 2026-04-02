@@ -1,363 +1,331 @@
-import argparse
-import asyncio
+"""
+Workday Job Scraper
+
+Scrapes job postings from Workday-powered career sites using the Workday API.
+Reads companies from workday_search_urls.csv and fetches all their job postings.
+"""
+
 import csv
 import json
 import os
-import random
 import time
-from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import parse_qsl, urljoin, urlparse, urlencode, urlunparse
+from pathlib import Path
+from typing import List, Dict, Any, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import aiohttp
-from aiohttp import ClientResponseError, ClientSession, ClientTimeout
-from bs4 import BeautifulSoup
+from api_client import WorkdayAPIClient, JobPosting
 
-MAX_RETRIES = 3
-BASE_RETRY_DELAY = 2
-MIN_SCRAPE_DELAY = 1
-MAX_SCRAPE_DELAY = 3
-MAX_PAGES = 200
-MAX_CONCURRENT_DETAIL_REQUESTS = 8
-REQUEST_TIMEOUT = ClientTimeout(total=45)
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/143.0.0.0 Safari/537.36"
-)
-HEADERS = {"User-Agent": USER_AGENT, "Accept-Language": "en-US,en;q=0.9"}
+# Configuration
 CACHE_HOURS = 24
+MAX_WORKERS = 10  # Parallel company scraping (increased from 5)
+DELAY_BETWEEN_COMPANIES = 0.1  # Reduced delay for faster processing
+SCRIPT_DIR = Path(__file__).parent
+COMPANIES_DIR = SCRIPT_DIR / "companies"
+SEARCH_URLS_CSV = SCRIPT_DIR / "companies.csv"
+OUTPUT_JSON = SCRIPT_DIR / "workday.json"
 
 
-@dataclass(slots=True)
-class CompanyRow:
-    name: str
-    url: str
-    slug: str
+def slugify(company_name: str, url: str) -> str:
+    """Create a slug for the company from name and URL"""
+    from urllib.parse import urlparse
 
+    # Use company name as base
+    slug = company_name.lower().replace(" ", "_").replace("-", "_")
 
-def extract_company_slug(url: str) -> str:
+    # Remove special characters
+    slug = "".join(c for c in slug if c.isalnum() or c == "_")
+
+    # Add domain part for uniqueness
     parsed = urlparse(url)
-    host = parsed.netloc.replace(".", "_") or "workday"
-    path = parsed.path.strip("/").replace("/", "_")
-    query = parsed.query.replace("=", "-").replace("&", "-")
-    suffix = "_".join(filter(None, [path or None, query or None]))
-    return f"{host}_{suffix}" if suffix else host
+    domain_part = parsed.netloc.split(".")[0] if parsed.netloc else ""
+
+    if domain_part and domain_part != slug:
+        slug = f"{slug}_{domain_part}"
+
+    return slug[:100]  # Limit length
 
 
-def load_company_data(file_path: str) -> Optional[Dict[str, Any]]:
-    if not os.path.exists(file_path):
-        return None
-    try:
-        with open(file_path, "r", encoding="utf-8") as fh:
-            return json.load(fh)
-    except (OSError, json.JSONDecodeError):
-        return None
+def load_companies() -> List[Dict[str, str]]:
+    """Load companies from workday_search_urls.csv"""
+    if not SEARCH_URLS_CSV.exists():
+        print(f"❌ Error: {SEARCH_URLS_CSV} not found")
+        print("   Please run extract_search_urls.py first to generate company URLs")
+        return []
 
-
-def should_scrape(
-    company_data: Optional[Dict[str, Any]], force: bool, min_hours: int = CACHE_HOURS
-) -> tuple[bool, Optional[float]]:
-    if force or not company_data:
-        return True, None
-    ts = company_data.get("last_request") or company_data.get("last_scraped")
-    if not ts:
-        return True, None
-    try:
-        last = datetime.fromisoformat(ts)
-        hours = (datetime.now() - last).total_seconds() / 3600
-        return hours >= min_hours, hours
-    except (ValueError, TypeError):
-        return True, None
-
-
-def save_company_data(file_path: str, payload: Dict[str, Any]) -> None:
-    now = datetime.now().isoformat()
-    payload["last_scraped"] = now
-    payload["last_request"] = now
-    with open(file_path, "w", encoding="utf-8") as fh:
-        json.dump(payload, fh, indent=2)
-
-
-def set_query_param(url: str, **params: Any) -> str:
-    parsed = urlparse(url)
-    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    query.update({k: str(v) for k, v in params.items() if v is not None})
-    return urlunparse(parsed._replace(query=urlencode(query)))
-
-
-def clean_text(value: Optional[str]) -> Optional[str]:
-    if not value:
-        return None
-    text = " ".join(value.split())
-    return text or None
-
-
-def extract_job_id_hint(href: str) -> Optional[str]:
-    path = urlparse(href).path.rstrip("/")
-    if not path:
-        return None
-    tail = path.split("/")[-1]
-    if "_" in tail:
-        tail = tail.split("_")[-1]
-    tail = tail.split("?")[0]
-    return tail or None
-
-
-class WorkdayScraper:
-    def __init__(self, force: bool = False) -> None:
-        self.force = force
-        self.semaphore = asyncio.Semaphore(MAX_CONCURRENT_DETAIL_REQUESTS)
-
-    async def _fetch(self, session: ClientSession, url: str) -> Tuple[Optional[str], Optional[int]]:
-        attempt = 1
-        while attempt <= MAX_RETRIES:
-            try:
-                async with session.get(url, timeout=REQUEST_TIMEOUT) as resp:
-                    status = resp.status
-                    if status == 500:
-                        print(f"Received 500 for {url}; not retrying")
-                        return None, status
-                    if status == 404:
-                        print(f"Received 404 for {url}")
-                        return None, status
-                    resp.raise_for_status()
-                    return await resp.text(), status
-            except (ClientResponseError, aiohttp.ClientError) as err:
-                status = getattr(err, "status", None)
-                if status == 500:
-                    print(f"Error fetching {url} ({err}). Not retrying due to 500 status")
-                    return None, status
-                if attempt == MAX_RETRIES:
-                    print(f"Failed to fetch {url}: {err}")
-                    return None, status
-                backoff = BASE_RETRY_DELAY * attempt + random.uniform(0, 1)
-                print(f"Error fetching {url} ({err}). Retrying in {backoff:.1f}s...")
-                await asyncio.sleep(backoff)
-                attempt += 1
-        return None, None
-
-    def _parse_index_page(self, html: str, base_url: str, page_number: int) -> List[Dict[str, Any]]:
-        soup = BeautifulSoup(html, "html.parser")
-        results: List[Dict[str, Any]] = []
-        for anchor in soup.select("a[data-automation-id='jobTitle']"):
-            href_value = anchor.get("href")
-            if not href_value:
-                continue
-            job_url = urljoin(base_url, str(href_value))
-            if not job_url:
-                continue
-            card = anchor.find_parent("li") or anchor.find_parent("article")
-            location = None
-            posted_on = None
-            subtitle: List[str] = []
-            if card:
-                loc_dd = card.select_one("[data-automation-id='locations'] dd")
-                if loc_dd:
-                    location = clean_text(loc_dd.get_text(strip=True))
-                posted_dd = card.select_one("[data-automation-id='postedOn'] dd")
-                if posted_dd:
-                    posted_on = clean_text(posted_dd.get_text(strip=True))
-                subtitle_items = card.select("ul[data-automation-id='subtitle'] li")
-                if subtitle_items:
-                    subtitle = []
-                    for li in subtitle_items:
-                        value = clean_text(li.get_text(strip=True))
-                        if value:
-                            subtitle.append(value)
-            results.append(
-                {
-                    "title": clean_text(anchor.get_text(strip=True)),
-                    "job_url": job_url,
-                    "job_id_hint": extract_job_id_hint(job_url),
-                    "location_summary": location,
-                    "posted_on_summary": posted_on,
-                    "subtitle": subtitle,
-                    "page": page_number,
-                }
-            )
-        return results
-
-    async def _fetch_job_list(
-        self, session: ClientSession, base_url: str
-    ) -> Tuple[List[Dict[str, Any]], Optional[int]]:
-        all_jobs: List[Dict[str, Any]] = []
-        seen_urls: set[str] = set()
-        page = 1
-        last_status: Optional[int] = None
-        while page <= MAX_PAGES:
-            page_url = base_url if page == 1 else set_query_param(base_url, page=page)
-            html, status = await self._fetch(session, page_url)
-            if status is not None:
-                last_status = status
-            if not html:
-                break
-            parsed = self._parse_index_page(html, base_url, page)
-            new_jobs = [job for job in parsed if job["job_url"] not in seen_urls]
-            if not new_jobs:
-                break
-            for job in new_jobs:
-                seen_urls.add(job["job_url"])
-            all_jobs.extend(new_jobs)
-            print(f"Found {len(new_jobs)} jobs on page {page} ({base_url})")
-            page += 1
-        return all_jobs, last_status
-
-    def _parse_detail_page(self, html: str) -> Dict[str, Any]:
-        soup = BeautifulSoup(html, "html.parser")
-
-        def pick_value(automation_id: str) -> Optional[str]:
-            block = soup.select_one(f"[data-automation-id='{automation_id}']")
-            if not block:
-                return None
-            dd = block.find("dd")
-            if dd:
-                return clean_text(dd.get_text(strip=True))
-            return clean_text(block.get_text(strip=True))
-
-        description_block = soup.select_one("div[data-automation-id='jobPostingDescription']")
-        description_html = description_block.decode_contents().strip() if description_block else None
-        description_text = clean_text(description_block.get_text("\n", strip=True)) if description_block else None
-        apply_link = soup.select_one("a[data-automation-id='adventureButton']")
-
-        title_el = soup.select_one("h2[data-automation-id='jobPostingHeader']")
-
-        return {
-            "job_title": clean_text(title_el.get_text(strip=True)) if title_el else None,
-            "remote_type": pick_value("remoteType"),
-            "location_full": pick_value("locations"),
-            "time_type": pick_value("time"),
-            "posted_on": pick_value("postedOn"),
-            "time_left_to_apply": pick_value("timeLeftToApply"),
-            "job_requisition_id": pick_value("requisitionId"),
-            "job_description_html": description_html,
-            "job_description_text": description_text,
-            "apply_url": apply_link.get("href") if apply_link else None,
-        }
-
-    async def _fetch_job_detail(
-        self, session: ClientSession, job: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
-        async with self.semaphore:
-            html, status = await self._fetch(session, job["job_url"])
-        if not html:
-            status_text = status if status is not None else "unknown"
-            print(f"Skipping detail for {job['job_url']} (status {status_text})")
-            return None
-        detail = self._parse_detail_page(html)
-        job_id = detail.get("job_requisition_id") or job.get("job_id_hint")
-        merged = {
-            **job,
-            **detail,
-            "job_id": job_id,
-        }
-        return merged
-
-    async def scrape_company(self, session: ClientSession, company: CompanyRow, companies_dir: str) -> tuple[int, bool]:
-        file_path = os.path.join(companies_dir, f"{company.slug}.json")
-        existing = load_company_data(file_path)
-        should_run, hours = should_scrape(existing, self.force)
-        if not should_run:
-            cached_jobs = existing.get("job_count", 0) if existing else 0
-            hours_text = f"{hours:.1f}h" if hours is not None else "recently"
-            print(
-                f"Skipping {company.slug} (scraped {hours_text} ago, {cached_jobs} jobs cached)"
-            )
-            return cached_jobs, False
-
-        print(f"Fetching job index for {company.name} ({company.url})")
-        jobs, status_code = await self._fetch_job_list(session, company.url)
-        normalized_status = status_code if status_code is not None else 0
-        if not jobs:
-            print(f"No jobs found for {company.name}; caching empty result")
-            payload = {
-                "company": company.name,
-                "url": company.url,
-                "slug": company.slug,
-                "job_count": 0,
-                "jobs": [],
-                "status": normalized_status,
-            }
-            os.makedirs(companies_dir, exist_ok=True)
-            save_company_data(file_path, payload)
-            return 0, True
-
-        detail_tasks = [self._fetch_job_detail(session, job) for job in jobs]
-        details = [result for result in await asyncio.gather(*detail_tasks) if result]
-        print(f"Parsed {len(details)} detailed jobs for {company.name}")
-
-        payload = {
-            "company": company.name,
-            "url": company.url,
-            "slug": company.slug,
-            "job_count": len(details),
-            "jobs": details,
-            "status": normalized_status,
-        }
-        os.makedirs(companies_dir, exist_ok=True)
-        save_company_data(file_path, payload)
-        return len(details), True
-
-
-async def scrape_all_workday_jobs(force: bool = False, company_slug: Optional[str] = None) -> None:
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    csv_path = os.path.join(script_dir, "workday_companies.csv")
-    companies_dir = os.path.join(script_dir, "companies")
-
-    companies: List[CompanyRow] = []
-    with open(csv_path, "r", encoding="utf-8") as fh:
-        reader = csv.DictReader(fh)
+    companies = []
+    with open(SEARCH_URLS_CSV, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
         for row in reader:
+            name = row.get("name", "").strip()
             url = row.get("url", "").strip()
-            name = row.get("name", "").strip() or "Unknown"
-            if not url:
-                continue
-            slug = extract_company_slug(url)
-            companies.append(CompanyRow(name=name, url=url, slug=slug))
 
-    if company_slug:
-        companies = [c for c in companies if c.slug == company_slug]
-        if not companies:
-            print(f"No company with slug '{company_slug}' in CSV")
-            return
+            if name and url:
+                companies.append({
+                    "name": name,
+                    "url": url,
+                    "slug": slugify(name, url)
+                })
 
-    connector = aiohttp.TCPConnector(ssl=False)
-    total_jobs = 0
-    scraped = skipped = failed = 0
+    return companies
 
-    async with aiohttp.ClientSession(headers=HEADERS, connector=connector) as session:
-        scraper = WorkdayScraper(force=force)
-        for company in companies:
-            print(f"\nProcessing {company.name} ({company.slug})")
+
+def should_scrape_company(slug: str, force: bool) -> bool:
+    """Check if company should be scraped based on cache"""
+    if force:
+        return True
+
+    company_file = COMPANIES_DIR / f"{slug}.json"
+    if not company_file.exists():
+        return True
+
+    try:
+        with open(company_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        last_scraped_str = data.get("last_scraped")
+        if not last_scraped_str:
+            return True
+
+        last_scraped = datetime.fromisoformat(last_scraped_str)
+        hours_elapsed = (datetime.now() - last_scraped).total_seconds() / 3600
+
+        return hours_elapsed >= CACHE_HOURS
+    except (OSError, json.JSONDecodeError, ValueError):
+        return True
+
+
+def scrape_company(company: Dict[str, str], force: bool = False) -> Optional[Dict[str, Any]]:
+    """
+    Scrape a single company using WorkdayAPIClient
+
+    Returns company data dict or None if failed
+    """
+    name = company["name"]
+    url = company["url"]
+    slug = company["slug"]
+
+    # Check cache
+    if not should_scrape_company(slug, force):
+        company_file = COMPANIES_DIR / f"{slug}.json"
+        try:
+            with open(company_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            hours_ago = (datetime.now() - datetime.fromisoformat(data["last_scraped"])).total_seconds() / 3600
+            print(f"  ✓ {name}: Using cached data ({hours_ago:.1f}h ago, {len(data.get('jobs', []))} jobs)")
+            return data
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    print(f"  Scraping {name} ({url})...")
+
+    try:
+        # Create API client with faster delay (0.25s instead of default 0.5s)
+        with WorkdayAPIClient(url) as client:
+            # ALWAYS use unlimited method to work around 2000 result limit
+            jobs_list = []
+            total_reported = client.get_total_count()
+            
+            if total_reported > 2000:
+                print(f"    Note: Company has {total_reported} jobs, will use facet subdivision to get more than 2000")
+            
+            for i, job in enumerate(client.get_all_jobs_unlimited(max_results=None, delay_between_requests=0.25), 1):
+                jobs_list.append(job.to_dict())
+                # Show progress every 500 jobs
+                if i % 500 == 0:
+                    progress_pct = (i / total_reported * 100) if total_reported > 0 else 0
+                    print(f"    → {i} jobs fetched ({progress_pct:.1f}%)...", flush=True)
+            
+            # Report if we got more or less than expected
+            if len(jobs_list) < total_reported:
+                print(f"    ⚠ Got {len(jobs_list)} of {total_reported} jobs ({len(jobs_list)/total_reported*100:.1f}%)")
+
+            # Create company data
+            company_data = {
+                "slug": slug,
+                "company": name,
+                "url": url,
+                "job_count": len(jobs_list),
+                "jobs": jobs_list,
+                "last_scraped": datetime.now().isoformat(),
+                "status": "success"
+            }
+
+            # Save to company file
+            COMPANIES_DIR.mkdir(exist_ok=True)
+            company_file = COMPANIES_DIR / f"{slug}.json"
+            with open(company_file, "w", encoding="utf-8") as f:
+                json.dump(company_data, f, indent=2)
+
+            print(f"    ✓ {name}: Found {len(jobs_list)} jobs")
+            return company_data
+
+    except Exception as e:
+        print(f"    ✗ {name}: Failed - {e}")
+
+        # Save error state
+        error_data = {
+            "slug": slug,
+            "company": name,
+            "url": url,
+            "job_count": 0,
+            "jobs": [],
+            "last_scraped": datetime.now().isoformat(),
+            "status": "error",
+            "error": str(e)
+        }
+
+        COMPANIES_DIR.mkdir(exist_ok=True)
+        company_file = COMPANIES_DIR / f"{slug}.json"
+        with open(company_file, "w", encoding="utf-8") as f:
+            json.dump(error_data, f, indent=2)
+
+        return error_data
+
+
+def scrape_all_companies(force: bool = False, max_companies: Optional[int] = None) -> List[Dict[str, Any]]:
+    """
+    Scrape all companies from workday_search_urls.csv using parallel workers
+
+    Returns list of company data dicts
+    """
+    companies = load_companies()
+
+    if not companies:
+        print("❌ No companies found in workday_search_urls.csv")
+        return []
+
+    if max_companies:
+        companies = companies[:max_companies]
+
+    print(f"\n🔍 Scraping {len(companies)} Workday companies...")
+    print(f"   Using {MAX_WORKERS} parallel workers")
+    print(f"   Cache: {'Disabled (force)' if force else f'{CACHE_HOURS}h'}\n")
+
+    results = []
+    completed = 0
+
+    # Use ThreadPoolExecutor for parallel scraping
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        # Submit all scraping tasks
+        future_to_company = {
+            executor.submit(scrape_company, company, force): company
+            for company in companies
+        }
+
+        # Process completed tasks as they finish
+        for future in as_completed(future_to_company):
+            completed += 1
+            company = future_to_company[future]
+
             try:
-                job_count, ran = await scraper.scrape_company(session, company, companies_dir)
-                total_jobs += job_count
-                if ran:
-                    scraped += 1
-                else:
-                    skipped += 1
-            except Exception as exc:  # noqa: BLE001
-                failed += 1
-                print(f"Failed to scrape {company.name}: {exc}")
-            finally:
-                await asyncio.sleep(random.uniform(MIN_SCRAPE_DELAY, MAX_SCRAPE_DELAY))
+                result = future.result()
+                if result:
+                    results.append(result)
+                print(f"[{completed}/{len(companies)}] Progress: {completed/len(companies)*100:.1f}%")
+            except Exception as e:
+                print(f"[{completed}/{len(companies)}] ✗ {company['name']}: Exception - {e}")
 
-    print(
-        f"\nDone! {scraped} scraped, {skipped} skipped, {failed} failed. "
-        f"Captured {total_jobs} total jobs."
-    )
+            # Small delay to avoid overwhelming the API
+            if DELAY_BETWEEN_COMPANIES > 0:
+                time.sleep(DELAY_BETWEEN_COMPANIES)
+
+    return results
+
+
+def create_consolidated_json(company_data_list: List[Dict[str, Any]]) -> str:
+    """
+    Create consolidated workday.json from all company data
+
+    Returns path to the JSON file
+    """
+    # Collect all jobs
+    all_jobs = []
+    for company_data in company_data_list:
+        for job in company_data.get("jobs", []):
+            # Add company context to each job
+            job_with_company = job.copy()
+            job_with_company["company"] = company_data["company"]
+            job_with_company["company_slug"] = company_data["slug"]
+            all_jobs.append(job_with_company)
+
+    # Create consolidated structure
+    consolidated = {
+        "jobs": all_jobs,
+        "total_jobs": len(all_jobs),
+        "total_companies": len(company_data_list),
+        "successful_companies": sum(1 for c in company_data_list if c.get("status") == "success"),
+        "failed_companies": sum(1 for c in company_data_list if c.get("status") == "error"),
+        "last_scraped": datetime.now().isoformat()
+    }
+
+    # Save to workday.json
+    with open(OUTPUT_JSON, "w", encoding="utf-8") as f:
+        json.dump(consolidated, f, indent=2)
+
+    return str(OUTPUT_JSON)
+
+
+def scrape_workday_jobs(force: bool = False, max_companies: Optional[int] = None):
+    """
+    Main function to scrape Workday jobs
+
+    Args:
+        force: Force re-scrape even if cached data exists
+        max_companies: Limit number of companies to scrape (for testing)
+
+    Returns:
+        Tuple of (json_path, num_jobs, was_scraped)
+    """
+    # Check if we can use cached data
+    if not force and OUTPUT_JSON.exists():
+        try:
+            with open(OUTPUT_JSON, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+
+            last_scraped_str = existing.get("last_scraped")
+            if last_scraped_str:
+                last_scraped = datetime.fromisoformat(last_scraped_str)
+                hours_elapsed = (datetime.now() - last_scraped).total_seconds() / 3600
+
+                if hours_elapsed < CACHE_HOURS:
+                    num_jobs = existing.get("total_jobs", 0)
+                    print(f"✓ Using cached Workday data ({hours_elapsed:.1f}h ago, {num_jobs} jobs)")
+                    return str(OUTPUT_JSON), num_jobs, False
+        except (OSError, json.JSONDecodeError, ValueError):
+            pass
+
+    # Scrape all companies
+    company_data_list = scrape_all_companies(force=force, max_companies=max_companies)
+
+    if not company_data_list:
+        print("❌ No company data scraped")
+        return None, 0, False
+
+    # Create consolidated JSON
+    json_path = create_consolidated_json(company_data_list)
+
+    # Print summary
+    total_jobs = sum(len(c.get("jobs", [])) for c in company_data_list)
+    successful = sum(1 for c in company_data_list if c.get("status") == "success")
+    failed = len(company_data_list) - successful
+
+    print(f"\n✅ Scraping complete!")
+    print(f"   Total companies: {len(company_data_list)}")
+    print(f"   Successful: {successful}")
+    print(f"   Failed: {failed}")
+    print(f"   Total jobs: {total_jobs}")
+    print(f"   Saved to: {json_path}")
+
+    return json_path, total_jobs, True
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Workday job scraper")
-    parser.add_argument("company_slug", nargs="?", help="Optional company slug to scrape")
-    parser.add_argument("--force", action="store_true", help="Force re-scrape regardless of cache age")
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Scrape Workday job postings")
+    parser.add_argument("--force", action="store_true", help="Force re-scrape even if cached")
+    parser.add_argument("--max-companies", type=int, help="Limit number of companies (for testing)")
     args = parser.parse_args()
 
-    start = time.perf_counter()
-    try:
-        asyncio.run(scrape_all_workday_jobs(force=args.force, company_slug=args.company_slug))
-    finally:
-        elapsed = time.perf_counter() - start
-        print(f"Total runtime: {elapsed:.2f}s")
+    scrape_workday_jobs(force=args.force, max_companies=args.max_companies)
