@@ -21,18 +21,22 @@ import re
 import os
 import shutil
 import tempfile
-from typing import Set, List
+import json
+from typing import Set, List, Dict, Optional, Tuple
 from dotenv import load_dotenv
+from collections import defaultdict
 import time
+from bs4 import BeautifulSoup
+from pathlib import Path
 
 load_dotenv()
 
 DEFAULT_ENGINES = (
-    os.getenv("SEARXNG_ENGINES", "bing,brave,qwant,wikipedia").strip()
-    or "bing,brave,qwant,wikipedia"
+    os.getenv("SEARXNG_ENGINES", "google,bing,wikipedia").strip()
+    or "google,bing,wikipedia"
 )
 
-PRIMARY_ENGINE = DEFAULT_ENGINES.split(",")[0].strip() or "bing"
+PRIMARY_ENGINE = DEFAULT_ENGINES.split(",")[0].strip() or "google"
 
 try:
     DEFAULT_REQUEST_DELAY = float(os.getenv("SEARXNG_REQUEST_DELAY", "1.0"))
@@ -51,7 +55,7 @@ PLATFORMS = {
         "domains": ["jobs.ashbyhq.com"],
         "pattern": r"(https://jobs\.ashbyhq\.com/[^/?#]+)",
         "csv_column": "ashby_url",
-        "output_file": "ashby/companies.csv",
+        "output_file": "ashby/ashby_companies.csv",
     },
     "greenhouse": {
         "domains": ["job-boards.greenhouse.io", "boards.greenhouse.io"],
@@ -91,6 +95,18 @@ PLATFORMS = {
         "pattern": r"(https://jobs\.gem\.com/[^/?#]+)",
         "csv_column": "gem_url",
         "output_file": "gem/gem_companies.csv",
+    },
+    "oracle": {
+        "domains": ["oraclecloud.com"],
+        "pattern": r"(https://[^/?#]+\.fa\.[^/?#]+\.oraclecloud\.com)",
+        "csv_column": "oracle_url",
+        "output_file": "oracle/oracle_companies.csv",
+    },
+    "avature": {
+        "domains": ["avature.net"],
+        "pattern": r"(https://[^/?#]+\.avature\.net/careers)",
+        "csv_column": "avature_url",
+        "output_file": "avature/avature_companies.csv",
     },
 }
 
@@ -248,6 +264,205 @@ SEARCH_STRATEGIES = [
 ]
 
 
+def load_healthy_instances(
+    json_path: str = "z_searxng_instances.json",
+) -> List[Dict[str, any]]:
+    """
+    Load healthy SearXNG instances from JSON file
+
+    Filter criteria:
+    - http.status_code == 200
+    - version is recent (2026.x or 2025.x)
+    - timing.search.success_percentage >= 80 (if available)
+
+    Returns:
+        List of dicts with: {url, version, timing_score}
+    """
+    if not os.path.exists(json_path):
+        print(f"⚠️  Instance file not found: {json_path}")
+        return []
+
+    try:
+        with open(json_path, "r") as f:
+            data = json.load(f)
+
+        instances_data = data.get("instances", {})
+        healthy_instances = []
+
+        for url, info in instances_data.items():
+            # Check HTTP status
+            http_info = info.get("http", {})
+            if http_info.get("status_code") != 200:
+                continue
+
+            # Check version (2026.x or 2025.x)
+            version = info.get("version", "")
+            if not (version.startswith("2026.") or version.startswith("2025.")):
+                continue
+
+            # Check search success percentage if available
+            timing = info.get("timing", {})
+            search_timing = timing.get("search", {})
+            success_pct = search_timing.get("success_percentage", 100)
+
+            if success_pct < 80:
+                continue
+
+            # Calculate timing score (lower is better)
+            # Use median search time if available, otherwise default to 5.0
+            search_all = search_timing.get("all", {})
+            timing_score = search_all.get("median", 5.0)
+
+            healthy_instances.append(
+                {
+                    "url": url.rstrip("/"),
+                    "version": version,
+                    "timing_score": timing_score,
+                    "success_percentage": success_pct,
+                }
+            )
+
+        # Sort by timing score (fastest first)
+        healthy_instances.sort(key=lambda x: x["timing_score"])
+
+        print(f"✅ Loaded {len(healthy_instances)} healthy SearXNG instances")
+        return healthy_instances
+
+    except Exception as e:
+        print(f"⚠️  Error loading instances from {json_path}: {e}")
+        return []
+
+
+class AdaptiveInstanceManager:
+    """
+    Manages SearXNG instance rotation with adaptive selection
+
+    Features:
+    - Tracks usage per instance to distribute load
+    - Tracks errors to avoid problematic instances
+    - Enforces cooldown periods between requests to same instance
+    - Prefers local instance when available
+    """
+
+    def __init__(
+        self,
+        cloud_instances: List[Dict[str, any]],
+        local_url: Optional[str] = None,
+        min_cooldown: float = 30.0,
+    ):
+        self.cloud_instances = cloud_instances
+        self.local_url = local_url.rstrip("/") if local_url else None
+        self.min_cooldown = min_cooldown
+
+        # Track usage and errors
+        self.usage_counts = defaultdict(int)
+        self.error_counts = defaultdict(int)
+        self.last_used = {}  # url -> timestamp
+
+        # Track if local instance is working
+        self.local_working = True
+        self.local_consecutive_errors = 0
+
+    def get_next_instance(self) -> str:
+        """
+        Get next instance using adaptive strategy
+
+        Returns:
+            URL of the next instance to use
+        """
+        current_time = time.time()
+
+        # Try local instance first if available and working
+        if self.local_url and self.local_working:
+            # Check cooldown
+            last_use = self.last_used.get(self.local_url, 0)
+            if current_time - last_use >= self.min_cooldown:
+                return self.local_url
+
+        # Select cloud instance
+        if not self.cloud_instances:
+            # Fallback to local even if not working
+            if self.local_url:
+                return self.local_url
+            raise RuntimeError("No SearXNG instances available")
+
+        # Filter instances that have cooled down
+        available = []
+        for instance in self.cloud_instances:
+            url = instance["url"]
+            last_use = self.last_used.get(url, 0)
+
+            if current_time - last_use >= self.min_cooldown:
+                # Calculate score: lower is better
+                # Factors: usage count, error rate, timing
+                usage = self.usage_counts[url]
+                errors = self.error_counts[url]
+                error_rate = errors / max(usage, 1)
+                timing = instance["timing_score"]
+
+                # Score formula: prioritize low usage, low errors, fast timing
+                score = usage * 10 + error_rate * 100 + timing
+
+                available.append((score, url))
+
+        if not available:
+            # No instances have cooled down, pick least recently used
+            oldest_time = float("inf")
+            oldest_url = None
+
+            for instance in self.cloud_instances:
+                url = instance["url"]
+                last_use = self.last_used.get(url, 0)
+                if last_use < oldest_time:
+                    oldest_time = last_use
+                    oldest_url = url
+
+            if oldest_url:
+                return oldest_url
+
+            # Last resort: pick first instance
+            return self.cloud_instances[0]["url"]
+
+        # Sort by score and pick best
+        available.sort(key=lambda x: x[0])
+        return available[0][1]
+
+    def record_success(self, url: str):
+        """Record successful query to an instance"""
+        self.usage_counts[url] += 1
+        self.last_used[url] = time.time()
+
+        # Reset local error counter on success
+        if url == self.local_url:
+            self.local_consecutive_errors = 0
+            self.local_working = True
+
+    def record_error(self, url: str):
+        """Record failed query to an instance"""
+        self.usage_counts[url] += 1
+        self.error_counts[url] += 1
+        self.last_used[url] = time.time()
+
+        # Track local instance errors
+        if url == self.local_url:
+            self.local_consecutive_errors += 1
+            # Disable local after 3 consecutive errors
+            if self.local_consecutive_errors >= 3:
+                self.local_working = False
+                print(
+                    f"  ⚠️  Local instance disabled after {self.local_consecutive_errors} consecutive errors"
+                )
+
+    def get_stats(self) -> Dict[str, any]:
+        """Get usage statistics"""
+        return {
+            "total_requests": sum(self.usage_counts.values()),
+            "total_errors": sum(self.error_counts.values()),
+            "instances_used": len(self.usage_counts),
+            "local_working": self.local_working if self.local_url else None,
+        }
+
+
 def normalize_url(url: str) -> str:
     """Normalize URLs for case-insensitive comparisons"""
     if not isinstance(url, str):
@@ -313,6 +528,43 @@ def standardize_workday_url(url: str) -> str:
         base_url = match.group(1)
         # Remove trailing slash if present
         return base_url.rstrip("/")
+
+    return url
+
+
+def standardize_oracle_url(url: str) -> str:
+    """
+    Standardize Oracle HCM Cloud URLs to extract base URL.
+    Pattern: https://{subdomain}.fa.{region}.oraclecloud.com
+    """
+    if not isinstance(url, str):
+        return ""
+
+    url = url.strip().rstrip("/").lower()
+    oracle_pattern = r"^(https://[^/?#]+\.fa\.[^/?#]+\.oraclecloud\.com)"
+    match = re.match(oracle_pattern, url)
+
+    if match:
+        return match.group(1)
+
+    return url
+
+
+def standardize_avature_url(url: str) -> str:
+    """
+    Standardize Avature URLs to extract base careers URL.
+    Pattern: https://{company}.avature.net/careers
+    """
+    if not isinstance(url, str):
+        return ""
+
+    url = url.strip().rstrip("/").lower()
+    # Match base careers URL or full careers path
+    avature_pattern = r"^(https://[^/?#]+\.avature\.net)(?:/careers)?"
+    match = re.match(avature_pattern, url)
+
+    if match:
+        return f"{match.group(1)}/careers"
 
     return url
 
@@ -394,6 +646,20 @@ def extract_company_name_from_url(url: str, platform_key: str) -> str:
     elif platform_key == "gem":
         # https://jobs.gem.com/{slug}
         slug = path.split("/")[0] if path else "unknown"
+    elif platform_key == "oracle":
+        # https://{subdomain}.fa.{region}.oraclecloud.com
+        netloc = parsed.netloc.lower()
+        if ".fa." in netloc and ".oraclecloud.com" in netloc:
+            slug = netloc.split(".fa.")[0]
+        else:
+            slug = "unknown"
+    elif platform_key == "avature":
+        # https://{company}.avature.net/careers
+        netloc = parsed.netloc.lower()
+        if ".avature.net" in netloc:
+            slug = netloc.split(".avature.net")[0]
+        else:
+            slug = "unknown"
     else:
         slug = path.split("/")[0] if path else "unknown"
 
@@ -401,6 +667,29 @@ def extract_company_name_from_url(url: str, platform_key: str) -> str:
     decoded = unquote(slug)
     spaced = decoded.replace("-", " ").replace("_", " ")
     return spaced.title()
+
+
+def enrich_oracle_names(csv_path: str) -> None:
+    """
+    Enrich Oracle company names by scraping actual names from careers pages.
+    Only processes new entries that haven't been enriched yet.
+    """
+    try:
+        # Import here to avoid circular dependencies
+        import subprocess
+
+        # Run enrichment script
+        script_path = Path(__file__).parent / "oracle" / "enrich_company_names.py"
+        if script_path.exists():
+            print(f"  🔄 Enriching Oracle company names...")
+            subprocess.run(
+                ["python", str(script_path), "--csv", csv_path, "--delay", "1.5"],
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+    except Exception as e:
+        print(f"  ⚠️  Failed to enrich Oracle names: {e}")
 
 
 def save_discovered_urls(
@@ -434,6 +723,20 @@ def save_discovered_urls(
             if standardized:
                 sorted_urls.append(standardized)
         sorted_urls = sorted(set(sorted_urls))
+    elif platform_key == "oracle":
+        sorted_urls = []
+        for norm_url in sorted(combined_urls):
+            standardized = standardize_oracle_url(norm_url)
+            if standardized:
+                sorted_urls.append(standardized)
+        sorted_urls = sorted(set(sorted_urls))
+    elif platform_key == "avature":
+        sorted_urls = []
+        for norm_url in sorted(combined_urls):
+            standardized = standardize_avature_url(norm_url)
+            if standardized:
+                sorted_urls.append(standardized)
+        sorted_urls = sorted(set(sorted_urls))
     else:
         sorted_urls = sorted(combined_urls)
 
@@ -453,6 +756,10 @@ def save_discovered_urls(
                             url = standardize_gem_url(url)
                         elif platform_key == "workday":
                             url = standardize_workday_url(url)
+                        elif platform_key == "oracle":
+                            url = standardize_oracle_url(url)
+                        elif platform_key == "avature":
+                            url = standardize_avature_url(url)
                         existing_data[url] = row.get("name", "")
         except Exception:
             pass
@@ -470,6 +777,10 @@ def save_discovered_urls(
     df = pd.DataFrame(rows)
     write_dataframe_atomically(df, config["output_file"])
     print(f"  💾 Saved {len(df)} companies to {config['output_file']}")
+
+    # Enrich Oracle company names after saving
+    if platform_key == "oracle":
+        enrich_oracle_names(config["output_file"])
 
 
 def read_existing_urls(
@@ -502,6 +813,10 @@ def read_existing_urls(
                 urls_to_process = [
                     standardize_workday_url(url) for url in urls_to_process
                 ]
+            elif platform_key == "oracle":
+                urls_to_process = [standardize_oracle_url(url) for url in urls_to_process]
+            elif platform_key == "avature":
+                urls_to_process = [standardize_avature_url(url) for url in urls_to_process]
 
             existing_urls = {
                 normalize_url(url) for url in urls_to_process if normalize_url(url)
@@ -517,6 +832,47 @@ def read_existing_urls(
                 except OSError:
                     pass
     return existing_urls
+
+
+def parse_html_results(html_content: str) -> List[dict]:
+    """
+    Parse HTML search results from SearXNG
+
+    Returns list of dicts with 'url' and 'title' keys
+    """
+    results = []
+
+    try:
+        soup = BeautifulSoup(html_content, "html.parser")
+
+        # Find all result articles
+        # SearXNG uses <article class="result"> for each result
+        articles = soup.find_all("article", class_="result")
+
+        for article in articles:
+            # Find the main link (h3 > a or direct a with result-url class)
+            link = (
+                article.find("a", class_="url_wrapper") or article.find("h3").find("a")
+                if article.find("h3")
+                else None
+            )
+
+            if link and link.get("href"):
+                url = link.get("href")
+                title = link.get_text(strip=True) if link.get_text(strip=True) else url
+
+                results.append(
+                    {
+                        "url": url,
+                        "title": title,
+                    }
+                )
+
+    except Exception as e:
+        # If HTML parsing fails, return empty list
+        pass
+
+    return results
 
 
 def extract_urls_from_results(
@@ -556,9 +912,12 @@ def search_searxng(
     page: int = 1,
     engines: str = PRIMARY_ENGINE,
     max_retries: int = 3,
+    use_html: bool = True,
 ) -> List[dict]:
     """
     Perform search using SearXNG instance with retry logic for rate limiting
+
+    Tries HTML format first (less rate-limited), falls back to JSON if needed
 
     Args:
         searxng_url: Base URL of SearXNG instance (e.g., http://localhost:8080)
@@ -566,29 +925,76 @@ def search_searxng(
         page: Page number (default: 1)
         engines: Comma-separated list of search engines to use
         max_retries: Maximum number of retries for rate-limited requests
+        use_html: Try HTML format first (default: True)
 
     Returns:
         List of search results
     """
     endpoint = f"{searxng_url.rstrip('/')}/search"
 
+    # Browser-like headers to avoid rate limiting
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": searxng_url,
+    }
+
+    # Try HTML first (less rate-limited on public instances)
+    if use_html:
+        params_html = {
+            "q": query,
+            "pageno": page,
+            "language": "en",
+            "safesearch": 0,
+        }
+        if engines:
+            params_html["engines"] = engines
+
+        headers_html = headers.copy()
+        headers_html["Accept"] = (
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        )
+
+        try:
+            response = requests.get(
+                endpoint, params=params_html, headers=headers_html, timeout=30
+            )
+
+            if response.status_code == 200:
+                # Parse HTML results
+                results = parse_html_results(response.text)
+                if results:
+                    return results
+                # If HTML parsing failed or no results, fall through to JSON
+            elif response.status_code != 429:
+                # For non-429 errors, fall through to JSON
+                pass
+        except Exception:
+            # If HTML request fails, fall through to JSON
+            pass
+
+    # Fall back to JSON API (or use directly if use_html=False)
     params = {
         "q": query,
         "format": "json",
         "pageno": page,
         "engines": engines,
         "language": "en",
-        "safesearch": 0,  # 0=off, 1=moderate, 2=strict
+        "safesearch": 0,
     }
+
+    headers_json = headers.copy()
+    headers_json["Accept"] = "application/json"
 
     for attempt in range(max_retries):
         try:
-            response = requests.get(endpoint, params=params, timeout=30)
+            response = requests.get(
+                endpoint, params=params, headers=headers_json, timeout=30
+            )
 
             # Handle rate limiting (429) with exponential backoff
             if response.status_code == 429:
                 if attempt < max_retries - 1:
-                    # Exponential backoff: 2^attempt seconds (2, 4, 8 seconds)
                     wait_time = 2 ** (attempt + 1)
                     print(
                         f"  ⏳ Rate limited (429), retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})"
@@ -606,53 +1012,13 @@ def search_searxng(
 
             # Check for engine errors in the response
             errors = data.get("errors", [])
-            if errors:
-                # Log first few errors for debugging
-                for error in errors[:3]:
-                    engine_name = error.get("engine", "unknown")
-                    error_msg = error.get("error", str(error))
-                    print(f"    ⚠️  Engine '{engine_name}' error: {error_msg}")
+            if errors and len(errors) > 3:
+                print(f"    ⚠️  {len(errors)} engine errors occurred")
 
             results = data.get("results", [])
-
-            # Debug logging: Show response details if no results
-            if not results:
-                number_of_results = data.get("number_of_results", 0)
-                infoboxes = data.get("infoboxes", [])
-                answers = data.get("answers", [])
-
-                # Show more detailed debug info for first failed query
-                if page == 1:
-                    print(f"    🔍 Debug: Response keys: {list(data.keys())}")
-                    print(
-                        f"    🔍 Debug: number_of_results={number_of_results}, errors={len(errors)}, infoboxes={len(infoboxes)}"
-                    )
-                    if number_of_results > 0:
-                        print(
-                            f"    ⚠️  SearXNG reports {number_of_results} total results but returned 0 in 'results' array"
-                        )
-                        # Check if results are in a different key
-                        for key in data.keys():
-                            if (
-                                "result" in key.lower()
-                                and isinstance(data[key], list)
-                                and len(data[key]) > 0
-                            ):
-                                print(
-                                    f"    💡 Found {len(data[key])} results in key '{key}' instead of 'results'"
-                                )
-                    elif errors:
-                        print("    ⚠️  All engines failed with errors (see above)")
-                    elif infoboxes or answers:
-                        print("    ℹ️  Got infobox/answer data but no search results")
-                    else:
-                        query_preview = query[:50] + "..." if len(query) > 50 else query
-                        print(f"    ℹ️  No results found for query: '{query_preview}'")
-
             return results
 
         except requests.exceptions.RequestException as e:
-            # For 429 errors, we already handled above, so this is for other HTTP errors
             if "429" in str(e) and attempt < max_retries - 1:
                 wait_time = 2 ** (attempt + 1)
                 print(
@@ -661,14 +1027,10 @@ def search_searxng(
                 time.sleep(wait_time)
                 continue
             elif attempt == max_retries - 1:
-                print(f"  ⚠️  Error querying SearXNG: {e}")
                 return []
             else:
-                # For non-429 errors, don't retry
-                print(f"  ⚠️  Error querying SearXNG: {e}")
                 return []
         except Exception as e:
-            print(f"  ⚠️  Unexpected error: {e}")
             return []
 
     return []
@@ -680,6 +1042,10 @@ def discover_platform(
     pages_per_query: int = 20,
     engines: str = DEFAULT_ENGINES,
     request_delay: float = DEFAULT_REQUEST_DELAY,
+    output_file: str = None,
+    use_cloud: bool = None,
+    local_only: bool = False,
+    min_instance_cooldown: float = 30.0,
 ):
     """
     Discover companies using SearXNG
@@ -690,6 +1056,10 @@ def discover_platform(
         pages_per_query: Pages per query (default: 3)
         engines: Search engines to use (default pulled from SEARXNG_ENGINES)
         request_delay: Seconds to wait between page fetches
+        output_file: Optional custom output file path (overrides config default)
+        use_cloud: Enable cloud instances (default: from env SEARXNG_USE_CLOUD)
+        local_only: Use only local instance (default: False)
+        min_instance_cooldown: Minimum seconds between requests to same instance
     """
 
     platform_key = platform_name.lower()
@@ -699,7 +1069,9 @@ def discover_platform(
         print(f"Available platforms: {', '.join(PLATFORMS.keys())}")
         return
 
-    config = PLATFORMS[platform_key]
+    config = PLATFORMS[platform_key].copy()
+    if output_file:
+        config["output_file"] = output_file
 
     print("=" * 80)
     print(f"🔍 SearXNG Discovery: {platform_key.upper()}")
@@ -711,42 +1083,51 @@ def discover_platform(
 
     query_cooldown = max(request_delay, 1.0)
 
-    # Check for SearXNG URL
-    searxng_url = os.getenv("SEARXNG_URL")
-    if not searxng_url:
-        print("\n❌ SEARXNG_URL not found in environment")
-        print("\nSetup instructions:")
-        print("1. Set up SearXNG (see SEARXNG_SETUP.md)")
-        print("2. Add to .env file:")
-        print("   SEARXNG_URL=http://localhost:8080")
-        print("\nOr use a public instance (if available):")
-        print("   SEARXNG_URL=https://searx.be")
+    # Determine if we should use cloud instances
+    if use_cloud is None:
+        use_cloud_env = os.getenv("SEARXNG_USE_CLOUD", "false").lower()
+        use_cloud = use_cloud_env in ("true", "1", "yes")
+
+    # Get local instance URL
+    local_url = os.getenv("SEARXNG_URL") if not local_only else os.getenv("SEARXNG_URL")
+
+    # Load cloud instances if enabled
+    cloud_instances = []
+    if use_cloud and not local_only:
+        instances_file = os.getenv("SEARXNG_INSTANCES_FILE", "z_searxng_instances.json")
+        cloud_instances = load_healthy_instances(instances_file)
+        if cloud_instances:
+            print(f"🌐 Loaded {len(cloud_instances)} cloud instances")
+
+    # Check if we have at least one instance available
+    if not local_url and not cloud_instances:
+        print("\n❌ No SearXNG instances available")
+        print("\nOptions:")
+        print("1. Set SEARXNG_URL in .env for local instance")
+        print("2. Enable cloud instances with --use-cloud flag")
+        print("3. Ensure z_searxng_instances.json exists for cloud instances")
         return
 
-    # Test SearXNG connection
-    print(f"\n🔗 Testing connection to {searxng_url}...")
+    # Initialize instance manager
+    instance_manager = AdaptiveInstanceManager(
+        cloud_instances=cloud_instances,
+        local_url=local_url,
+        min_cooldown=min_instance_cooldown,
+    )
+
+    # Test connection with first available instance
+    print(f"\n🔗 Testing connection...")
+    test_instance = instance_manager.get_next_instance()
+    print(f"   Using: {test_instance}")
     test_results = search_searxng(
-        searxng_url, "test", page=1, engines=engines, max_retries=5
+        test_instance, "test", page=1, engines=engines, max_retries=5
     )
     if not test_results:
-        print("❌ Failed to connect to SearXNG or no results returned")
-        print(
-            "   This might be due to rate limiting - waiting 10 seconds and trying once more..."
-        )
-        time.sleep(10)
-        test_results = search_searxng(
-            searxng_url, "test", page=1, engines=engines, max_retries=3
-        )
-        if not test_results:
-            print("❌ Still failing. Make sure:")
-            print("   - SearXNG is running")
-            print("   - JSON format is enabled in settings.yml")
-            print("   - URL is correct in .env")
-            print(
-                "   - Rate limiter allows requests (check rate_limit in settings.yml)"
-            )
-            return
-    print(f"✅ Connected! Got {len(test_results)} test results")
+        print("⚠️  Test query returned no results, but continuing...")
+        instance_manager.record_error(test_instance)
+    else:
+        print(f"✅ Connected! Got {len(test_results)} test results")
+        instance_manager.record_success(test_instance)
 
     # Read existing URLs
     existing_urls = read_existing_urls(
@@ -757,6 +1138,7 @@ def discover_platform(
     new_urls: Set[str] = set()
     queries_used = 0
     total_results_fetched = 0
+    instance_usage_log = []  # Track which instances were used
 
     # Use search strategies
     strategies_to_use = (
@@ -779,19 +1161,35 @@ def discover_platform(
 
         for page in range(1, pages_per_query + 1):
             try:
-                # SearXNG search
-                results = search_searxng(searxng_url, query, page=page, engines=engines)
+                # Get next instance from manager
+                current_instance = instance_manager.get_next_instance()
+                instance_usage_log.append(current_instance)
 
-                total_results_fetched += len(results)
+                # Show which instance we're using (only for cloud instances or if verbose)
+                if current_instance != local_url or not local_url:
+                    instance_display = current_instance.replace("https://", "").replace(
+                        "http://", ""
+                    )
+                    if len(instance_display) > 40:
+                        instance_display = instance_display[:37] + "..."
+                    print(f"  📡 Using: {instance_display}")
 
-                if not results:
-                    print(f"  Page {page}: No results returned by engine mix")
+                # SearXNG search with selected instance
+                results = search_searxng(
+                    current_instance, query, page=page, engines=engines
+                )
+
+                if results:
+                    instance_manager.record_success(current_instance)
+                    total_results_fetched += len(results)
+                else:
+                    instance_manager.record_error(current_instance)
+                    print(f"  Page {page}: No results returned")
                     if page == 1:
-                        print(
-                            f"    💡 Retrying with {PRIMARY_ENGINE} as a fallback engine..."
-                        )
+                        # Try with fallback engine
+                        print(f"    💡 Retrying with {PRIMARY_ENGINE} as fallback...")
                         fallback_results = search_searxng(
-                            searxng_url, query, page=page, engines=PRIMARY_ENGINE
+                            current_instance, query, page=page, engines=PRIMARY_ENGINE
                         )
                         if fallback_results:
                             print(
@@ -799,6 +1197,7 @@ def discover_platform(
                             )
                             results = fallback_results
                             total_results_fetched += len(fallback_results)
+                            instance_manager.record_success(current_instance)
                         else:
                             print(
                                 f"    ⚠️  {PRIMARY_ENGINE} fallback also returned no results"
@@ -819,20 +1218,36 @@ def discover_platform(
                     page_urls = [standardize_gem_url(url) for url in page_urls]
                 elif platform_key == "workday":
                     page_urls = [standardize_workday_url(url) for url in page_urls]
+                elif platform_key == "oracle":
+                    page_urls = [standardize_oracle_url(url) for url in page_urls]
+                elif platform_key == "avature":
+                    page_urls = [standardize_avature_url(url) for url in page_urls]
 
                 normalized_page_urls = {
                     normalize_url(url) for url in page_urls if normalize_url(url)
                 }
 
-                new_in_page = normalized_page_urls - discovered_norms - query_norms
+                # Calculate truly new URLs (not in CSV, not discovered this session)
+                truly_new = normalized_page_urls - existing_urls - new_urls
+                new_urls.update(truly_new)
+
+                # Track all discovered URLs for this query
                 query_norms.update(normalized_page_urls)
 
-                new_candidates = normalized_page_urls - existing_urls - new_urls
-                new_urls.update(new_candidates)
-
-                print(
-                    f"  Page {page}: {len(results)} results, {len(page_urls)} relevant URLs (+{len(new_in_page)} new)"
-                )
+                # Show only truly new URLs
+                if truly_new:
+                    print(
+                        f"  Page {page}: {len(results)} results, +{len(truly_new)} NEW URLs"
+                    )
+                    # Show first 5 new URLs
+                    for url in sorted(truly_new)[:5]:
+                        print(f"    ✨ {url}")
+                    if len(truly_new) > 5:
+                        print(f"    ... and {len(truly_new) - 5} more new URLs")
+                else:
+                    print(
+                        f"  Page {page}: {len(results)} results, 0 new URLs (all already known)"
+                    )
 
                 # Delay to avoid rate limiting (configurable via CLI/env)
                 if request_delay > 0:
@@ -840,15 +1255,15 @@ def discover_platform(
 
             except Exception as e:
                 print(f"  ⚠️  Error on page {page}: {e}")
+                if "current_instance" in locals():
+                    instance_manager.record_error(current_instance)
                 break
 
         queries_used += 1
         new_from_query = query_norms - discovered_norms
         discovered_norms.update(query_norms)
 
-        print(
-            f"  Query total: +{len(new_from_query)} new URLs (cumulative: {len(discovered_norms)})"
-        )
+        print(f"  Query summary: +{len(new_from_query)} URLs found this query")
 
         # Save progress after each query to preserve work if script is stopped
         combined_urls = existing_urls.union(new_urls)
@@ -862,29 +1277,41 @@ def discover_platform(
         if strategy_idx < len(strategies_to_use) and query_cooldown > 0:
             time.sleep(query_cooldown)
 
+    # Get instance manager stats
+    manager_stats = instance_manager.get_stats()
+
     print("\n📊 Discovery Summary:")
     print(f"  🔍 Queries used: {queries_used}")
+    print(f"  🌐 Instances used: {len(set(instance_usage_log))}")
     print(f"  📄 Total results fetched: {total_results_fetched}")
-    new_count = len(new_urls)
-    print(f"  🔍 Companies found: {len(discovered_norms)}")
-    print(f"  🆕 New companies: {new_count}")
+    print(f"  🆕 NEW companies discovered: {len(new_urls)}")
+    print(f"  📚 Previously known: {len(existing_urls) - len(new_urls)}")
+    print(f"  📊 Total after discovery: {len(existing_urls)}")
+
+    # Show instance stats
+    if manager_stats["total_requests"] > 0:
+        error_rate = (
+            manager_stats["total_errors"] / manager_stats["total_requests"]
+        ) * 100
+        print(f"\n📈 Instance Stats:")
+        print(f"  Total requests: {manager_stats['total_requests']}")
+        print(f"  Total errors: {manager_stats['total_errors']} ({error_rate:.1f}%)")
+        print(f"  Unique instances: {manager_stats['instances_used']}")
 
     # Final save (data is already saved after each query, but save once more to ensure consistency)
-    combined_urls = existing_urls.union(new_urls)
+    combined_urls = existing_urls
 
-    if new_count:
-        print("\n🎉 Sample of new URLs (first 10):")
-        # Normalized URLs are already in standardized format (standardized before normalization)
-        # They're just lowercase, which is fine for display
-        for url in sorted(new_urls)[:10]:
+    if new_urls:
+        print(f"\n🎉 All {len(new_urls)} newly discovered URLs:")
+        for url in sorted(new_urls):
             print(f"  ✨ {url}")
-        if new_count > 10:
-            print(f"  ... and {new_count - 10} more")
+    else:
+        print("\nℹ️  No new URLs discovered (all URLs were already in the CSV)")
 
     # Final save using helper function
     save_discovered_urls(combined_urls, platform_key, config)
     print(
-        f"\n✅ Final save complete: {len(combined_urls)} total companies saved to {config['output_file']}"
+        f"\n✅ Final save complete: {len(combined_urls)} total companies in {config['output_file']}"
     )
 
 
@@ -893,6 +1320,9 @@ def discover_all_platforms(
     pages_per_query: int = 20,
     engines: str = DEFAULT_ENGINES,
     request_delay: float = DEFAULT_REQUEST_DELAY,
+    use_cloud: bool = None,
+    local_only: bool = False,
+    min_instance_cooldown: float = 30.0,
 ):
     """Discover all platforms using SearXNG"""
 
@@ -902,6 +1332,8 @@ def discover_all_platforms(
     print(f"📊 Pages per query: {pages_per_query}")
     print(f"🔧 Engines: {engines}")
     print(f"⏱️ Delay between page requests: {request_delay}s")
+    print(f"🌐 Cloud instances: {'enabled' if use_cloud else 'disabled'}")
+    print(f"🏠 Local only: {local_only}")
     print("=" * 80)
 
     platform_cooldown = max(5.0, request_delay * 4)
@@ -914,6 +1346,9 @@ def discover_all_platforms(
             pages_per_query=pages_per_query,
             engines=engines,
             request_delay=request_delay,
+            use_cloud=use_cloud,
+            local_only=local_only,
+            min_instance_cooldown=min_instance_cooldown,
         )
         print("=" * 80)
         time.sleep(platform_cooldown)
@@ -927,7 +1362,22 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="SearXNG-based company discovery (self-hosted)"
+        description="SearXNG-based company discovery with cloud instance support",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Use local instance only
+  python searxng_discovery.py --platform lever --local-only
+  
+  # Use cloud instances only
+  python searxng_discovery.py --platform workday --use-cloud
+  
+  # Use both local and cloud instances
+  python searxng_discovery.py --platform all --use-cloud
+  
+  # Quick discovery with limited queries
+  python searxng_discovery.py --platform ashby --max-queries 5 --pages 3 --use-cloud
+        """,
     )
     parser.add_argument(
         "--platform",
@@ -940,7 +1390,7 @@ if __name__ == "__main__":
         "--max-queries",
         type=int,
         default=-1,
-        help="Maximum queries to use (default: unlimited!)",
+        help="Maximum queries to use (default: unlimited)",
     )
     parser.add_argument(
         "--pages", type=int, default=20, help="Pages per query (default: 20)"
@@ -957,6 +1407,22 @@ if __name__ == "__main__":
         default=DEFAULT_REQUEST_DELAY,
         help=f"Seconds to sleep between page requests (default: {DEFAULT_REQUEST_DELAY})",
     )
+    parser.add_argument(
+        "--use-cloud",
+        action="store_true",
+        help="Enable cloud SearXNG instances from z_searxng_instances.json",
+    )
+    parser.add_argument(
+        "--local-only",
+        action="store_true",
+        help="Use only local SearXNG instance (SEARXNG_URL)",
+    )
+    parser.add_argument(
+        "--min-cooldown",
+        type=float,
+        default=30.0,
+        help="Minimum seconds between requests to same instance (default: 30)",
+    )
 
     args = parser.parse_args()
 
@@ -966,6 +1432,9 @@ if __name__ == "__main__":
             pages_per_query=args.pages,
             engines=args.engines,
             request_delay=args.delay,
+            use_cloud=args.use_cloud,
+            local_only=args.local_only,
+            min_instance_cooldown=args.min_cooldown,
         )
     else:
         discover_platform(
@@ -974,4 +1443,7 @@ if __name__ == "__main__":
             pages_per_query=args.pages,
             engines=args.engines,
             request_delay=args.delay,
+            use_cloud=args.use_cloud,
+            local_only=args.local_only,
+            min_instance_cooldown=args.min_cooldown,
         )

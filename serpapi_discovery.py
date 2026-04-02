@@ -15,18 +15,6 @@ load_dotenv()
 
 # Platform configurations
 PLATFORMS = {
-    "ashby": {
-        "domains": ["jobs.ashbyhq.com"],
-        "pattern": r"(https://jobs\.ashbyhq\.com/[^/?#]+)",
-        "csv_column": "ashby_url",
-        "output_file": "ashby/companies.csv",
-    },
-    "greenhouse": {
-        "domains": ["job-boards.greenhouse.io", "boards.greenhouse.io"],
-        "pattern": r"(https://(?:job-boards|boards)\.greenhouse\.io/[^/?#]+)",
-        "csv_column": "greenhouse_url",
-        "output_file": "greenhouse/greenhouse_companies.csv",
-    },
     "lever": {
         "domains": ["jobs.lever.co"],
         "pattern": r"(https://jobs\.lever\.co/[^/?#]+)",
@@ -41,6 +29,18 @@ PLATFORMS = {
         ],
         "csv_column": "workable_url",
         "output_file": "workable/workable_companies.csv",
+    },
+    "smartrecruiters": {
+        "domains": ["jobs.smartrecruiters.com"],
+        "pattern": r"(https://jobs\.smartrecruiters\.com/[^/?#]+)",
+        "csv_column": "smartrecruiters_url",
+        "output_file": "smartrecruiters/smartrecruiters_companies.csv",
+    },
+    "workday": {
+        "domains": ["myworkdayjobs.com"],
+        "pattern": r"(https://[^/?#]+\.myworkdayjobs\.com/[^/?#]+)",
+        "csv_column": "workday_url",
+        "output_file": "workday/workday_companies.csv",
     },
 }
 
@@ -258,6 +258,17 @@ def extract_company_slug_from_url(url: str, platform: str) -> str:
     elif platform == "workable":
         # https://apply.workable.com/{slug}
         slug = path
+    elif platform == "smartrecruiters":
+        # https://jobs.smartrecruiters.com/{company}/...
+        slug = path.split("/")[0] if path else "unknown"
+    elif platform == "workday":
+        # https://{company}.wd*.myworkdayjobs.com/...
+        # Extract company name from subdomain
+        netloc = parsed.netloc.lower()
+        if ".myworkdayjobs.com" in netloc:
+            slug = netloc.split(".")[0]
+        else:
+            slug = "unknown"
     else:
         slug = path.split("/")[0] if path else "unknown"
 
@@ -327,7 +338,10 @@ def save_to_csv(
 
 
 def discover_platform(
-    platform_name: str, pages_per_strategy: int = 10, max_strategies: int = None
+    platform_name: str,
+    pages_per_strategy: int = 10,
+    max_strategies: int = None,
+    output_file: str = None,
 ):
     """Run enhanced discovery for a specific platform"""
 
@@ -336,7 +350,9 @@ def discover_platform(
         print(f"Available platforms: {', '.join(PLATFORMS.keys())}")
         return
 
-    config = PLATFORMS[platform_name]
+    config = PLATFORMS[platform_name].copy()
+    if output_file:
+        config["output_file"] = output_file
 
     # Read existing URLs
     existing_urls = read_existing_urls(config["output_file"], config["csv_column"])
