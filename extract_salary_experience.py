@@ -112,7 +112,33 @@ def build_company_json_map():
     if _company_json_paths:
         return
 
-    # Build both exact and normalized mappings
+    # Add special source files that don't use companies/ directories
+    special_source_files = {
+        "google": DATA_DIR / "google" / "google.json",
+        "microsoft": DATA_DIR / "microsoft" / "microsoft.json",
+        "nvidia": DATA_DIR / "nvidia" / "nvidia.json",
+        "amazon": DATA_DIR / "amazon" / "amazon.json",
+        "meta": DATA_DIR / "meta" / "meta.json",
+        "tiktok": DATA_DIR / "tiktok" / "tiktok.json",
+        "cursor": DATA_DIR / "cursor" / "cursor.json",
+        "tesla": DATA_DIR / "tesla" / "tesla.json",
+        "apple": DATA_DIR / "apple" / "apple.json",
+        "uber": DATA_DIR / "uber" / "uber.json",
+    }
+
+    for company_name, json_file in special_source_files.items():
+        if json_file.exists():
+            # Store both exact and normalized versions
+            _company_json_paths[company_name] = json_file
+            _company_json_paths[normalize_company_name(company_name)] = json_file
+            # Also map common variations
+            if company_name == "tiktok":
+                _company_json_paths["TikTok"] = json_file
+            elif company_name == "meta":
+                _company_json_paths["Meta"] = json_file
+                _company_json_paths["Facebook"] = json_file
+
+    # Build both exact and normalized mappings for companies/ directories
     for companies_dir in DATA_DIR.rglob("companies"):
         if not companies_dir.is_dir():
             continue
@@ -137,14 +163,26 @@ def get_job_description_fast(
 
     # Try to find JSON file - try exact match first, then normalized
     json_file = _company_json_paths.get(company)
+    found_via_ats_type = False
     if not json_file or not json_file.exists():
         normalized_company = normalize_company_name(company)
         json_file = _company_json_paths.get(normalized_company)
         if not json_file or not json_file.exists():
-            return None, time.time() - start_time
+            # Fallback: try to find by ats_type for special sources
+            if ats_type:
+                json_file = _company_json_paths.get(ats_type.lower())
+                if json_file and json_file.exists():
+                    found_via_ats_type = True
+                else:
+                    return None, time.time() - start_time
+            else:
+                return None, time.time() - start_time
 
-    # Use normalized company name for cache key
-    cache_key = normalize_company_name(company)
+    # Use ats_type as cache key for special sources, otherwise use normalized company name
+    if found_via_ats_type and ats_type:
+        cache_key = ats_type.lower()
+    else:
+        cache_key = normalize_company_name(company)
 
     # Load JSON with caching
     if cache_key not in _json_cache:
@@ -324,7 +362,15 @@ def extract_salary_from_description(
                 # Remove commas (thousand separators) and convert to float (handles decimal points correctly)
                 min_val_str = match.group(1).replace(",", "")
                 max_val_str = match.group(2).replace(",", "")
-                # Convert to float (handles decimal points like ".00" correctly)
+                # Handle European dot-as-thousands format (e.g. "179.600.00" -> "179600.00")
+                # If there are multiple dots, all but the last are thousand separators
+                if min_val_str.count(".") > 1:
+                    parts = min_val_str.rsplit(".", 1)
+                    min_val_str = parts[0].replace(".", "") + "." + parts[1]
+                if max_val_str.count(".") > 1:
+                    parts = max_val_str.rsplit(".", 1)
+                    max_val_str = parts[0].replace(".", "") + "." + parts[1]
+                # Convert to float
                 min_float = float(min_val_str)
                 max_float = float(max_val_str)
                 if "k" in matched_text.lower() and min_float < 1000:
@@ -573,6 +619,21 @@ def main():
         for job in jobs:
             job["experience_years"] = ""
 
+    # Check if salary columns exist, add if not
+    salary_fields = [
+        "salary_min",
+        "salary_max",
+        "salary_currency",
+        "salary_period",
+        "salary_summary",
+    ]
+    for field in salary_fields:
+        if field not in fieldnames:
+            fieldnames = list(fieldnames) + [field]
+            for job in jobs:
+                if field not in job:
+                    job[field] = ""
+
     # Filter jobs that need extraction
     jobs_to_process = []
     for job in jobs:
@@ -596,6 +657,8 @@ def main():
     updated_count = 0
     failed_count = 0
     extraction_results = []  # Store all extraction results for review
+    failure_records = []  # Track all failures with detailed reasons
+    success_records = []  # Track successful extractions
 
     for idx, (job, needs_salary, needs_experience) in enumerate(jobs_to_process, 1):
         url = job.get("url", "").strip()
@@ -617,6 +680,7 @@ def main():
         if not description:
             print(f"    ❌ Description not found (took {desc_time:.3f}s)")
             failed_count += 1
+            failure_records.append({"url": url, "failure_reason": "no_description"})
             if args.dry_run:
                 extraction_results.append(
                     {
@@ -681,8 +745,15 @@ def main():
                     print(f"        Context: ...{extracted_salary_context}...")
             else:
                 print(f"    ⚠️  Could not parse salary: {extracted_salary_raw}")
+                failure_records.append(
+                    {
+                        "url": url,
+                        "failure_reason": f"salary_parse_failed: {extracted_salary_raw}",
+                    }
+                )
         elif needs_salary:
             print("    ⚠️  No salary found in description")
+            failure_records.append({"url": url, "failure_reason": "no_salary_pattern"})
 
         # Update experience if needed
         if needs_experience and extracted_experience is not None:
@@ -691,6 +762,9 @@ def main():
                 print(f"        Context: ...{extracted_experience_context}...")
         elif needs_experience:
             print("    ⚠️  No experience requirement found in description")
+            failure_records.append(
+                {"url": url, "failure_reason": "no_experience_pattern"}
+            )
 
         # Store extraction result for review
         if args.dry_run:
@@ -738,6 +812,22 @@ def main():
             if needs_experience and extracted_experience is not None:
                 job["experience_years"] = str(extracted_experience)
 
+        # Track successful extractions
+        if (needs_salary and salary_min and salary_max) or (
+            needs_experience and extracted_experience is not None
+        ):
+            success_records.append(
+                {
+                    "url": url,
+                    "title": title,
+                    "company": company,
+                    "ats_type": ats_type,
+                    "extracted_salary": salary_summary if salary_min else None,
+                    "extracted_experience": extracted_experience,
+                    "description_length": len(description),
+                }
+            )
+
         updated_count += 1
         print()
 
@@ -759,12 +849,14 @@ def main():
             writer.writerows(jobs)
 
         print(f"✅ Updated {csv_path.name}")
-        print(f"   - {updated_count} jobs updated")
-        print(f"   - {failed_count} jobs failed")
+        print(f"   - {updated_count} jobs processed")
+        print(f"   - {len(success_records)} successful extractions")
+        print(f"   - {len(failure_records)} failures")
     elif args.dry_run:
         print("🔍 Dry run complete")
-        print(f"   - {updated_count} jobs would be updated")
-        print(f"   - {failed_count} jobs would fail")
+        print(f"   - {updated_count} jobs would be processed")
+        print(f"   - {len(success_records)} successful extractions")
+        print(f"   - {len(failure_records)} failures")
 
         # Save extraction results to file
         if extraction_results:
@@ -778,6 +870,34 @@ def main():
             print(f"   - {len(extraction_results)} extraction results recorded")
     else:
         print("ℹ️  No jobs were updated")
+
+    # Save failure report to file (url + reason only)
+    if failure_records:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        failure_json_path = csv_path.parent / f"extraction_failures_{timestamp}.json"
+        with open(failure_json_path, "w", encoding="utf-8") as f:
+            json.dump(failure_records, f, indent=2, ensure_ascii=False)
+        print(f"\n📊 Failure report saved: {failure_json_path.name}")
+        print(f"   - {len(failure_records)} failures recorded")
+        failure_types = {}
+        for record in failure_records:
+            reason = record.get("failure_reason", "unknown")
+            ftype = reason.split(":")[0].strip() if ":" in reason else reason
+            failure_types[ftype] = failure_types.get(ftype, 0) + 1
+        print(f"\n📈 Failure Breakdown:")
+        for ftype, count in sorted(
+            failure_types.items(), key=lambda x: x[1], reverse=True
+        ):
+            print(f"   - {ftype}: {count} ({count / len(failure_records) * 100:.1f}%)")
+
+        # Print success rate if we have both successes and failures
+        if success_records:
+            total_attempts = len(success_records) + len(failure_records)
+            success_rate = len(success_records) / total_attempts * 100
+            print(f"\n📊 Success Rate:")
+            print(
+                f"   - Overall: {success_rate:.1f}% ({len(success_records)}/{total_attempts})"
+            )
 
 
 if __name__ == "__main__":
