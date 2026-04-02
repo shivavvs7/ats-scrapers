@@ -208,6 +208,58 @@ run_workable() {
   fi
 }
 
+run_workday() {
+  local msg="[run_workday] Starting Workday pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
+
+  if ! run_python_script "$PROJECT_ROOT/workday/main.py" "run_workday: main.py"; then
+    return 1
+  fi
+
+  if ! run_python_script "$PROJECT_ROOT/workday/export_to_csv.py" "run_workday: export_to_csv.py"; then
+    return 1
+  fi
+
+  msg="[run_workday] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
+}
+
+run_avature() {
+  local msg="[run_avature] Starting Avature pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
+
+  if ! run_python_script "$PROJECT_ROOT/avature/main.py" "run_avature: main.py"; then
+    return 1
+  fi
+
+  if ! run_python_script "$PROJECT_ROOT/avature/export_to_csv.py" "run_avature: export_to_csv.py"; then
+    return 1
+  fi
+
+  msg="[run_avature] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
+}
+
 run_google() {
   local msg="[run_google] Starting Google pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
   {
@@ -296,14 +348,240 @@ run_apple() {
   fi
 }
 
-run_workday() {
-  "$PYTHON" "$PROJECT_ROOT/workday/main.py"
-  "$PYTHON" "$PROJECT_ROOT/workday/export_to_csv.py"
+run_nvidia() {
+  local msg="[run_nvidia] Starting NVIDIA pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
+
+  if ! run_python_script "$PROJECT_ROOT/nvidia/main.py" "run_nvidia: main.py"; then
+    return 1
+  fi
+
+  msg="[run_nvidia] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
 }
 
-run_google() {
-  "$PYTHON" "$PROJECT_ROOT/google/main.py"
-  "$PYTHON" "$PROJECT_ROOT/google/export_to_csv.py"
+run_microsoft() {
+  local msg="[run_microsoft] Starting Microsoft pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
+
+  if ! run_python_script "$PROJECT_ROOT/microsoft/main.py" "run_microsoft: main.py"; then
+    return 1
+  fi
+
+  msg="[run_microsoft] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
+}
+
+run_tiktok() {
+  local msg="[run_tiktok] Starting TikTok pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
+
+  if ! run_python_script "$PROJECT_ROOT/tiktok/main.py" "run_tiktok: main.py"; then
+    return 1
+  fi
+
+  msg="[run_tiktok] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
+}
+
+run_cursor() {
+  local msg="[run_cursor] Starting Cursor pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
+
+  if ! run_python_script "$PROJECT_ROOT/cursor/main.py" "run_cursor: main.py"; then
+    return 1
+  fi
+
+  msg="[run_cursor] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
+}
+
+run_tesla() {
+  local msg="[run_tesla] Starting Tesla pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
+
+  if ! run_python_script "$PROJECT_ROOT/tesla/main.py" "run_tesla: main.py"; then
+    return 1
+  fi
+
+  msg="[run_tesla] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
+}
+
+run_mercor() {
+  local msg="[run_mercor] Starting Mercor pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
+
+  if ! run_python_script "$PROJECT_ROOT/mercor/main.py" "run_mercor: main.py"; then
+    return 1
+  fi
+
+  msg="[run_mercor] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
+}
+
+run_smartrecruiters() {
+  local msg="[run_smartrecruiters] Starting SmartRecruiters pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
+
+  if ! run_python_script "$PROJECT_ROOT/smartrecruiters/main.py" "run_smartrecruiters: main.py"; then
+    return 1
+  fi
+
+  if ! run_python_script "$PROJECT_ROOT/smartrecruiters/export_to_csv.py" "run_smartrecruiters: export_to_csv.py"; then
+    return 1
+  fi
+
+  msg="[run_smartrecruiters] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
+}
+
+run_join() {
+  local msg="[run_join] Starting Join.com pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
+
+  if ! run_python_script "$PROJECT_ROOT/join_com/main.py" "run_join: main.py"; then
+    return 1
+  fi
+
+  if ! run_python_script "$PROJECT_ROOT/join_com/export_to_csv.py" "run_join: export_to_csv.py"; then
+    return 1
+  fi
+
+  msg="[run_join] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
+}
+
+run_rippling() {
+  local msg="[run_rippling] Starting Rippling pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
+
+  if ! run_python_script "$PROJECT_ROOT/rippling/main.py" "run_rippling: main.py"; then
+    return 1
+  fi
+
+  if ! run_python_script "$PROJECT_ROOT/rippling/export_to_csv.py" "run_rippling: export_to_csv.py"; then
+    return 1
+  fi
+
+  msg="[run_rippling] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
+}
+
+run_personio() {
+  local msg="[run_personio] Starting Personio pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
+
+  if ! run_python_script "$PROJECT_ROOT/personio/main.py" "run_personio: main.py"; then
+    return 1
+  fi
+
+  if ! run_python_script "$PROJECT_ROOT/personio/export_to_csv.py" "run_personio: export_to_csv.py"; then
+    return 1
+  fi
+
+  msg="[run_personio] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
+  {
+    echo "$msg"
+  } >> "$LOG_FILE" 2>&1
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    echo "$msg"
+  fi
 }
 
 run_ai() {
@@ -315,7 +593,24 @@ run_ai() {
     echo "$msg"
   fi
   
-  if ! run_python_script "$PROJECT_ROOT/ai.py" "run_ai: ai.py"; then
+  # Run ai.py with output path pointing to ../map/public/ai.csv
+  set +e
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    "$PYTHON" "$PROJECT_ROOT/ai.py" --output ../map/public/ai.csv 2>&1 | tee -a "$LOG_FILE"
+    local exit_code=${PIPESTATUS[0]}
+  else
+    "$PYTHON" "$PROJECT_ROOT/ai.py" --output ../map/public/ai.csv >> "$LOG_FILE" 2>&1
+    local exit_code=$?
+  fi
+  set -e
+  
+  if [[ $exit_code -ne 0 ]]; then
+    {
+      echo "[ERROR] run_ai: ai.py failed with exit code $exit_code"
+    } >> "$LOG_FILE" 2>&1
+    if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+      echo "[ERROR] run_ai: ai.py failed with exit code $exit_code" >&2
+    fi
     return 1
   fi
   
@@ -340,10 +635,10 @@ run_ai() {
     
     set +e
     if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-      (cd "$PROJECT_ROOT/map" && "$VERCEL_BIN" --prod 2>&1 | tee -a "$LOG_FILE")
+      (cd "$PROJECT_ROOT/../map" && "$VERCEL_BIN" --prod 2>&1 | tee -a "$LOG_FILE")
       local exit_code=${PIPESTATUS[0]}
     else
-      (cd "$PROJECT_ROOT/map" && "$VERCEL_BIN" --prod >> "$LOG_FILE" 2>&1)
+      (cd "$PROJECT_ROOT/../map" && "$VERCEL_BIN" --prod >> "$LOG_FILE" 2>&1)
       local exit_code=$?
     fi
     set -e
@@ -420,6 +715,16 @@ case "$JOB" in
       FAILED=1
     fi
     ;;
+  workday)
+    if ! run_workday; then
+      FAILED=1
+    fi
+    ;;
+  avature)
+    if ! run_avature; then
+      FAILED=1
+    fi
+    ;;
   google)
     if ! run_google; then
       FAILED=1
@@ -440,8 +745,55 @@ case "$JOB" in
       FAILED=1
     fi
     ;;
-  workday)
-    run_workday
+  nvidia)
+    if ! run_nvidia; then
+      FAILED=1
+    fi
+    ;;
+  microsoft)
+    if ! run_microsoft; then
+      FAILED=1
+    fi
+    ;;
+  tiktok)
+    if ! run_tiktok; then
+      FAILED=1
+    fi
+    ;;
+  cursor)
+    if ! run_cursor; then
+      FAILED=1
+    fi
+    ;;
+  tesla)
+    if ! run_tesla; then
+      FAILED=1
+    fi
+    ;;
+  mercor)
+    if ! run_mercor; then
+      FAILED=1
+    fi
+    ;;
+  smartrecruiters)
+    if ! run_smartrecruiters; then
+      FAILED=1
+    fi
+    ;;
+  join)
+    if ! run_join; then
+      FAILED=1
+    fi
+    ;;
+  rippling)
+    if ! run_rippling; then
+      FAILED=1
+    fi
+    ;;
+  personio)
+    if ! run_personio; then
+      FAILED=1
+    fi
     ;;
   google)
     run_google
@@ -510,6 +862,28 @@ case "$JOB" in
       fi
     fi
 
+    if ! run_workday; then
+      FAILED=1
+      warn_msg="[WARNING] run_workday failed, continuing with other jobs..."
+      {
+        echo "$warn_msg"
+      } >> "$LOG_FILE" 2>&1
+      if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+        echo "$warn_msg" >&2
+      fi
+    fi
+
+    if ! run_avature; then
+      FAILED=1
+      warn_msg="[WARNING] run_avature failed, continuing with other jobs..."
+      {
+        echo "$warn_msg"
+      } >> "$LOG_FILE" 2>&1
+      if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+        echo "$warn_msg" >&2
+      fi
+    fi
+
     if ! run_google; then
       FAILED=1
       warn_msg="[WARNING] run_google failed, continuing with other jobs..."
@@ -554,6 +928,116 @@ case "$JOB" in
       fi
     fi
 
+    if ! run_nvidia; then
+      FAILED=1
+      warn_msg="[WARNING] run_nvidia failed, continuing with other jobs..."
+      {
+        echo "$warn_msg"
+      } >> "$LOG_FILE" 2>&1
+      if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+        echo "$warn_msg" >&2
+      fi
+    fi
+
+    if ! run_microsoft; then
+      FAILED=1
+      warn_msg="[WARNING] run_microsoft failed, continuing with other jobs..."
+      {
+        echo "$warn_msg"
+      } >> "$LOG_FILE" 2>&1
+      if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+        echo "$warn_msg" >&2
+      fi
+    fi
+
+    if ! run_tiktok; then
+      FAILED=1
+      warn_msg="[WARNING] run_tiktok failed, continuing with other jobs..."
+      {
+        echo "$warn_msg"
+      } >> "$LOG_FILE" 2>&1
+      if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+        echo "$warn_msg" >&2
+      fi
+    fi
+
+    if ! run_cursor; then
+      FAILED=1
+      warn_msg="[WARNING] run_cursor failed, continuing with other jobs..."
+      {
+        echo "$warn_msg"
+      } >> "$LOG_FILE" 2>&1
+      if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+        echo "$warn_msg" >&2
+      fi
+    fi
+
+    if ! run_tesla; then
+      FAILED=1
+      warn_msg="[WARNING] run_tesla failed, continuing with other jobs..."
+      {
+        echo "$warn_msg"
+      } >> "$LOG_FILE" 2>&1
+      if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+        echo "$warn_msg" >&2
+      fi
+    fi
+
+    if ! run_mercor; then
+      FAILED=1
+      warn_msg="[WARNING] run_mercor failed, continuing with other jobs..."
+      {
+        echo "$warn_msg"
+      } >> "$LOG_FILE" 2>&1
+      if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+        echo "$warn_msg" >&2
+      fi
+    fi
+
+    if ! run_smartrecruiters; then
+      FAILED=1
+      warn_msg="[WARNING] run_smartrecruiters failed, continuing with other jobs..."
+      {
+        echo "$warn_msg"
+      } >> "$LOG_FILE" 2>&1
+      if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+        echo "$warn_msg" >&2
+      fi
+    fi
+
+    if ! run_join; then
+      FAILED=1
+      warn_msg="[WARNING] run_join failed, continuing with other jobs..."
+      {
+        echo "$warn_msg"
+      } >> "$LOG_FILE" 2>&1
+      if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+        echo "$warn_msg" >&2
+      fi
+    fi
+
+    if ! run_rippling; then
+      FAILED=1
+      warn_msg="[WARNING] run_rippling failed, continuing with other jobs..."
+      {
+        echo "$warn_msg"
+      } >> "$LOG_FILE" 2>&1
+      if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+        echo "$warn_msg" >&2
+      fi
+    fi
+
+    if ! run_personio; then
+      FAILED=1
+      warn_msg="[WARNING] run_personio failed, continuing with other jobs..."
+      {
+        echo "$warn_msg"
+      } >> "$LOG_FILE" 2>&1
+      if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+        echo "$warn_msg" >&2
+      fi
+    fi
+
     if ! run_ai; then
       FAILED=1
       warn_msg="[WARNING] run_ai failed, continuing with other jobs..."
@@ -579,7 +1063,7 @@ case "$JOB" in
   *)
     {
       echo "[ERROR] Invalid job: $JOB"
-      echo "[ERROR] Usage: $0 {ashby|greenhouse|lever|workable|google|amazon|meta|apple|ai|fetch_job|all}"
+      echo "[ERROR] Usage: $0 {ashby|greenhouse|lever|workable|workday|avature|google|amazon|meta|apple|nvidia|microsoft|tiktok|cursor|tesla|mercor|smartrecruiters|join|rippling|personio|ai|fetch_job|all}"
     } >> "$LOG_FILE" 2>&1
     exit 1
     ;;
