@@ -1,7 +1,7 @@
 # jobhive
 
 > **The open dataset and toolkit for global job market data.**
-> 1.5M+ jobs from 23 000+ companies, scraped directly from ATS sources — no LinkedIn, no reposts, no recruiters.
+> 1.8M+ jobs from 117 000+ companies, scraped directly from ATS sources — no LinkedIn, no reposts, no recruiters.
 
 [![PyPI](https://img.shields.io/pypi/v/jobhive.svg)](https://pypi.org/project/jobhive/)
 [![Python](https://img.shields.io/pypi/pyversions/jobhive.svg)](https://pypi.org/project/jobhive/)
@@ -40,41 +40,48 @@ actually post jobs first.
 
 ## Coverage (May 2026)
 
-Counts below come from the live `by-ats/*.csv` slices on
-`storage.stapply.ai/jobhive/v1/`.
+Counts below come from the live manifest at
+`https://storage.stapply.ai/jobhive/v1/manifest.json` — verify any time
+with `jobhive list-ats`.
 
-| ATS | Jobs | Companies |
-|---|---:|---:|
-| Workday | 602 725 | 1 703 |
-| SmartRecruiters | 211 012 | 841 |
-| Oracle HCM | 163 104 | 430 |
-| Greenhouse | 109 335 | 2 594 |
-| Workable | 99 774 | 2 285 |
-| iCIMS | 83 137 | 544 |
-| Lever | 60 427 | 1 499 |
-| JazzHR | 44 946 | 1 470 |
-| Ashby | 34 030 | 1 693 |
-| Eightfold | 29 839 | 37 |
-| Breezy | 24 122 | 528 |
-| Rippling | 13 141 | 1 278 |
-| Teamtailor | 11 450 | 607 |
-| Pinpoint | 11 261 | 280 |
-| Cornerstone | 9 722 | 95 |
-| BambooHR | 9 645 | 982 |
-| Personio | 8 062 | 1 065 |
-| Recruiterbox | 4 200 | 218 |
-| Recruitee | 2 081 | 118 |
-| Avature | 1 934 | 21 |
-| Phenom | 1 302 | 2 |
-| Join.com | 596 | 110 |
-| Taleo | 132 | 14 |
-| **Total** | **~1 536 000** | **~18 400** |
+| ATS | Jobs |
+|---|---:|
+| Workday | 602 725 |
+| Bundesagentur (DE public-sector) | 301 314 |
+| SmartRecruiters | 211 012 |
+| Oracle HCM | 163 104 |
+| Greenhouse | 109 335 |
+| Workable | 99 774 |
+| iCIMS | 83 137 |
+| Lever | 60 427 |
+| JazzHR | 44 946 |
+| Ashby | 34 030 |
+| Arbetsformedlingen (SE public-sector) | 31 036 |
+| Eightfold | 29 839 |
+| Breezy | 24 122 |
+| Rippling | 13 141 |
+| Teamtailor | 11 450 |
+| Pinpoint | 11 261 |
+| Cornerstone | 9 722 |
+| BambooHR | 9 645 |
+| Personio | 8 062 |
+| Recruiterbox | 4 200 |
+| Recruitee | 2 081 |
+| Avature | 1 934 |
+| Phenom | 1 302 |
+| Join.com | 596 |
+| Taleo | 132 |
+| Amazon | 1 |
+| **Total** | **1 827 171** |
+
+That spans **117 342 distinct companies** across **26 ATS platforms**
+(`manifest.stats.total_companies`).
 
 Plus dedicated single-tenant scrapers for Apple (~6.6k), Nvidia (~4.3k),
-Google (~3.7k), TikTok (~3.5k), Microsoft (~2.7k), Uber (~1.7k), Meta
-(~1k), and a 19k-job Amazon scraper. The `companies/all.csv` slug index
-covers 23 000+ company-ATS entries in total (includes Gem boards that are
-indexed but not yet published).
+Google (~3.7k), TikTok (~3.5k), Microsoft (~2.7k), Uber (~1.7k), and Meta
+(~1k) — these are not in the published parquet today (the live Amazon
+slice is also a stub at 1 row); run them yourself for the latest
+listings.
 
 ## Install
 
@@ -150,6 +157,8 @@ scraper = get_scraper("ashby", "openai")
 | Recruitee | `RecruiteeScraper` | company slug |
 | Recruiterbox | `RecruiterboxScraper` | account slug |
 | Eightfold | `EightfoldScraper` | tenant slug (powers Microsoft, Nvidia, Cisco, AT&T, …) |
+| Bundesagentur für Arbeit | `BundesagenturScraper` | (any — German federal employment agency) |
+| Arbetsförmedlingen | `ArbetsformedlingenScraper` | (any — Swedish public employment service) |
 
 **Big-tech custom — stable**, live-validated, single-tenant per scraper:
 
