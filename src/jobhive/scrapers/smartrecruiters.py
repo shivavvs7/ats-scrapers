@@ -65,8 +65,6 @@ class SmartRecruitersScraper(BaseScraper):
         loc_remote = location.get("remote") if isinstance(location, dict) else None
 
         department = (item.get("department") or {}).get("label") if isinstance(item.get("department"), dict) else None
-        industry = (item.get("industry") or {}).get("label") if isinstance(item.get("industry"), dict) else None
-        function = (item.get("function") or {}).get("label") if isinstance(item.get("function"), dict) else None
         type_of_emp = (item.get("typeOfEmployment") or {}).get("label") if isinstance(item.get("typeOfEmployment"), dict) else None
 
         is_remote = None

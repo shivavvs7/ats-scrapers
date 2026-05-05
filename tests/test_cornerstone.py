@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 
-import httpx
 import pytest
 
 from jobhive.exceptions import CompanyNotFoundError, ScraperError

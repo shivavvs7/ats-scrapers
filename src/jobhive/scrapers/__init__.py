@@ -10,12 +10,12 @@ in `jobhive.pipeline` so a scraper stays usable on its own.
 
 from jobhive.scrapers.amazon import AmazonScraper
 from jobhive.scrapers.apple import AppleScraper
+from jobhive.scrapers.arbetsformedlingen import ArbetsformedlingenScraper
 from jobhive.scrapers.ashby import AshbyScraper
 from jobhive.scrapers.avature import AvatureScraper
 from jobhive.scrapers.bamboohr import BambooHRScraper
 from jobhive.scrapers.base import BaseScraper, ScraperRegistry, get_scraper
 from jobhive.scrapers.breezy import BreezyScraper
-from jobhive.scrapers.arbetsformedlingen import ArbetsformedlingenScraper
 from jobhive.scrapers.bundesagentur import BundesagenturScraper
 from jobhive.scrapers.cornerstone import CornerstoneScraper
 from jobhive.scrapers.eightfold import EightfoldScraper
@@ -50,11 +50,11 @@ from jobhive.scrapers.workday import WorkdayScraper
 __all__ = [
     "AmazonScraper",
     "AppleScraper",
+    "ArbetsformedlingenScraper",
     "AshbyScraper",
     "AvatureScraper",
     "BambooHRScraper",
     "BaseScraper",
-    "ArbetsformedlingenScraper",
     "BreezyScraper",
     "BundesagenturScraper",
     "CornerstoneScraper",
@@ -63,7 +63,6 @@ __all__ = [
     "GoogleScraper",
     "GreenhouseScraper",
     "JazzHRScraper",
-    "iCIMSScraper",
     "JoinComScraper",
     "LeverScraper",
     "MercorScraper",
@@ -82,10 +81,11 @@ __all__ = [
     "TeamtailorScraper",
     "TeslaScraper",
     "TikTokScraper",
-    "UberScraper",
     "USAJobsScraper",
+    "UberScraper",
     "WTTJScraper",
     "WorkableScraper",
     "WorkdayScraper",
     "get_scraper",
+    "iCIMSScraper",
 ]

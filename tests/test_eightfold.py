@@ -34,7 +34,6 @@ from jobhive.scrapers import (
 )
 from jobhive.scrapers.eightfold import _extract_remote, _format_location, _parse_ts
 
-
 # --- module-level fixtures --------------------------------------------------
 
 
@@ -831,5 +830,5 @@ def test_httpcloak_non_200_raises(monkeypatch) -> None:
         )
     )
     monkeypatch.setitem(sys.modules, "httpcloak", fake_httpcloak)
-    with pytest.raises(ScraperError, match="Dolby.*503"):
+    with pytest.raises(ScraperError, match=r"Dolby.*503"):
         EightfoldScraper("dolby", client_kind="httpcloak").fetch()

@@ -142,7 +142,7 @@ class BreezyScraper(BaseScraper):
 
         type_info = item.get("type")
         type_id = type_info.get("id") if isinstance(type_info, dict) else None
-        employment_type = _TYPE_MAP.get(str(type_id), None) if type_id else None
+        employment_type = _TYPE_MAP.get(str(type_id)) if type_id else None
 
         company_info = item.get("company") or {}
         company_name = (

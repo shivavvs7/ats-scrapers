@@ -19,9 +19,9 @@ def _fast_retries(monkeypatch: pytest.MonkeyPatch) -> None:
         if hasattr(mod, "RETRY_BASE_DELAY"):
             monkeypatch.setattr(mod, "RETRY_BASE_DELAY", 0.0)
 
-from jobhive.exceptions import CompanyNotFoundError, ScraperError
-from jobhive.models import ATSType
-from jobhive.scrapers import (
+from jobhive.exceptions import CompanyNotFoundError, ScraperError  # noqa: E402
+from jobhive.models import ATSType  # noqa: E402
+from jobhive.scrapers import (  # noqa: E402
     AshbyScraper,
     BaseScraper,
     GreenhouseScraper,

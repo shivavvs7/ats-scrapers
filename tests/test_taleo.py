@@ -50,7 +50,7 @@ def test_bare_slug_raises() -> None:
 
 
 def test_non_taleo_url_raises() -> None:
-    with pytest.raises(ScraperError, match="tbe.taleo.net"):
+    with pytest.raises(ScraperError, match=r"tbe\.taleo\.net"):
         TaleoScraper("https://acme.example.com/careers").fetch()
 
 

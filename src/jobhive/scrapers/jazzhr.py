@@ -102,12 +102,12 @@ class JazzHRScraper(BaseScraper):
         # httpx or auto: try httpx first
         try:
             html_text = await self._fetch_via_httpx()
-        except _WAFBlocked:
+        except _WAFBlocked as exc:
             if self.client_kind == "httpx":
                 raise ScraperError(
                     f"JazzHR ({self.company_slug}) blocked by WAF (403); "
                     f"set client_kind='httpcloak' to bypass"
-                )
+                ) from exc
             html_text = await asyncio.to_thread(self._fetch_via_httpcloak_sync)
         return self._parse_listing(html_text)
 
@@ -246,7 +246,7 @@ class JazzHRScraper(BaseScraper):
         return location or None
 
 
-class _WAFBlocked(Exception):
+class _WAFBlocked(Exception):  # noqa: N818
     """Internal signal: httpx hit a 403; caller decides whether to fall
     back to httpcloak or surface the error."""
 

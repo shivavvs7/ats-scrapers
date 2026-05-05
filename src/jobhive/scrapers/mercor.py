@@ -140,11 +140,8 @@ def _parse_listing(item: dict[str, Any]) -> Job | None:
     pay_freq = (item.get("payRateFrequency") or "").lower()
     salary_period = _FREQUENCY_MAP.get(pay_freq) if pay_freq else None
 
-    description = item.get("description")
-    if isinstance(description, str):
-        description = description.strip()[:10_000] or None
-    else:
-        description = None
+    raw_desc = item.get("description")
+    description = raw_desc.strip()[:10_000] or None if isinstance(raw_desc, str) else None
 
     raw: dict[str, Any] = {}
     for k in ("commitment", "category", "skills", "tags",

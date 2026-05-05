@@ -188,9 +188,9 @@ class USAJobsScraper(BaseScraper):
         location = None
         if isinstance(locs, list) and locs:
             names = [
-                str(l.get("LocationName")).strip()
-                for l in locs
-                if isinstance(l, dict) and l.get("LocationName")
+                str(loc.get("LocationName")).strip()
+                for loc in locs
+                if isinstance(loc, dict) and loc.get("LocationName")
             ]
             if names:
                 location = "; ".join(names[:3])

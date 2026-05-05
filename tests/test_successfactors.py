@@ -6,9 +6,6 @@ These tests pin XML parsing, title/location splitting, dedup, and retry.
 
 from __future__ import annotations
 
-import asyncio
-
-import httpx
 import pytest
 
 from jobhive.exceptions import CompanyNotFoundError, ScraperError

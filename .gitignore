@@ -12,8 +12,11 @@ wheels/
 htmlcov/
 .venv/
 venv/
+# Environment files — never commit these
 .env
-.env.local
+.env.*
+**/.env
+**/.env.*
 .cursor
 .vscode
 .DS_Store

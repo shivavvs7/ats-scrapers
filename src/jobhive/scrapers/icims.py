@@ -29,7 +29,6 @@ import html
 import re
 from datetime import datetime
 from typing import TYPE_CHECKING
-from urllib.parse import unquote
 
 import httpx
 
@@ -61,7 +60,7 @@ _TAG_RE = re.compile(r"<[^>]+>")
 
 
 @ScraperRegistry.register(ATSType.ICIMS)
-class iCIMSScraper(BaseScraper):
+class iCIMSScraper(BaseScraper):  # noqa: N801  matches public iCIMS branding
     """iCIMS scraper. ``company_slug`` is either:
 
     - A bare slug — ``"peraton"`` → ``https://careers-peraton.icims.com``

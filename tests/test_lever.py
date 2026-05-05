@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from jobhive.exceptions import CompanyNotFoundError, ScraperError
+from jobhive.exceptions import CompanyNotFoundError
 from jobhive.models import ATSType
 from jobhive.scrapers import LeverScraper, ScraperRegistry
 

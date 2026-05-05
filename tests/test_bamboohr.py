@@ -21,7 +21,6 @@ from jobhive.exceptions import CompanyNotFoundError, ScraperError
 from jobhive.models import ATSType
 from jobhive.scrapers import BambooHRScraper, ScraperRegistry, get_scraper
 
-
 # --- module-level ------------------------------------------------------------
 
 

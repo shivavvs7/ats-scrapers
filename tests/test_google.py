@@ -187,6 +187,7 @@ def test_5xx_retries(monkeypatch, httpx_mock) -> None:
 
 def test_429_with_retry_after_is_honored(monkeypatch, httpx_mock) -> None:
     import asyncio
+
     import jobhive.scrapers.google as g
     monkeypatch.setattr(g, "MAX_RETRIES", 3)
 

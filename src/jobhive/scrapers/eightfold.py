@@ -100,12 +100,12 @@ class EightfoldScraper(BaseScraper):
         # httpx or auto: try httpx first
         try:
             await self._fetch_via_httpx(seen, all_jobs)
-        except _WAFBlocked:
+        except _WAFBlocked as exc:
             if self.client_kind == "httpx":
                 raise ScraperError(
                     f"Eightfold ({self.company_name}) blocked by WAF (403); "
                     f"set client_kind='httpcloak' to bypass"
-                )
+                ) from exc
             # auto: switch to httpcloak
             seen.clear()
             all_jobs.clear()
@@ -326,7 +326,7 @@ class EightfoldScraper(BaseScraper):
         )
 
 
-class _WAFBlocked(Exception):
+class _WAFBlocked(Exception):  # noqa: N818
     """Internal signal that httpx hit a 403 — caller decides whether to
     fall back to httpcloak or surface the error."""
 
