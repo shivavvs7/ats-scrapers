@@ -1,7 +1,7 @@
 # jobhive
 
 > **The open dataset and toolkit for global job market data.**
-> 1M+ jobs from 16 000+ companies, scraped directly from ATS sources — no LinkedIn, no reposts, no recruiters.
+> 1.5M+ jobs from 23 000+ companies, scraped directly from ATS sources — no LinkedIn, no reposts, no recruiters.
 
 [![PyPI](https://img.shields.io/pypi/v/jobhive.svg)](https://pypi.org/project/jobhive/)
 [![Python](https://img.shields.io/pypi/pyversions/jobhive.svg)](https://pypi.org/project/jobhive/)
@@ -40,22 +40,41 @@ actually post jobs first.
 
 ## Coverage (May 2026)
 
+Counts below come from the live `by-ats/*.csv` slices on
+`storage.stapply.ai/jobhive/v1/`.
+
 | ATS | Jobs | Companies |
 |---|---:|---:|
-| Workday | 381 022 | 1 870 |
-| SmartRecruiters | 204 072 | 811 |
-| Greenhouse | 129 617 | 2 749 |
-| Workable | 100 196 | 3 971 |
-| Lever | 67 938 | 1 790 |
-| Ashby | 32 563 | 1 813 |
-| Rippling | 18 996 | 1 503 |
-| Avature | 13 732 | 69 |
-| Personio | 6 504 | 964 |
-| Join.com | 600 | 146 |
-| **Total** | **~955 000+** | **~16 200** |
+| Workday | 602 725 | 1 703 |
+| SmartRecruiters | 211 012 | 841 |
+| Oracle HCM | 163 104 | 430 |
+| Greenhouse | 109 335 | 2 594 |
+| Workable | 99 774 | 2 285 |
+| iCIMS | 83 137 | 544 |
+| Lever | 60 427 | 1 499 |
+| JazzHR | 44 946 | 1 470 |
+| Ashby | 34 030 | 1 693 |
+| Eightfold | 29 839 | 37 |
+| Breezy | 24 122 | 528 |
+| Rippling | 13 141 | 1 278 |
+| Teamtailor | 11 450 | 607 |
+| Pinpoint | 11 261 | 280 |
+| Cornerstone | 9 722 | 95 |
+| BambooHR | 9 645 | 982 |
+| Personio | 8 062 | 1 065 |
+| Recruiterbox | 4 200 | 218 |
+| Recruitee | 2 081 | 118 |
+| Avature | 1 934 | 21 |
+| Phenom | 1 302 | 2 |
+| Join.com | 596 | 110 |
+| Taleo | 132 | 14 |
+| **Total** | **~1 536 000** | **~18 400** |
 
-Plus dedicated scrapers for Apple, Amazon, Google, Meta, Microsoft, Nvidia,
-Tesla, TikTok, Uber, Bloomberg, YC, and more.
+Plus dedicated single-tenant scrapers for Apple (~6.6k), Nvidia (~4.3k),
+Google (~3.7k), TikTok (~3.5k), Microsoft (~2.7k), Uber (~1.7k), Meta
+(~1k), and a 19k-job Amazon scraper. The `companies/all.csv` slug index
+covers 23 000+ company-ATS entries in total (includes Gem boards that are
+indexed but not yet published).
 
 ## Install
 
@@ -94,16 +113,16 @@ df.groupby("company").size().sort_values(ascending=False).head(20)
 ```python
 from jobhive.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper
 
-jobs = GreenhouseScraper("openai").fetch()       # → list[Job]
-jobs = LeverScraper("anthropic").fetch()
-jobs = AshbyScraper("ramp").fetch()
+jobs = GreenhouseScraper("anthropic").fetch()    # → list[Job]
+jobs = LeverScraper("palantir").fetch()
+jobs = AshbyScraper("openai").fetch()
 ```
 
 Or pick by name:
 
 ```python
 from jobhive.scrapers import get_scraper
-scraper = get_scraper("greenhouse", "openai")
+scraper = get_scraper("ashby", "openai")
 ```
 
 #### Scraper status
@@ -112,26 +131,38 @@ scraper = get_scraper("greenhouse", "openai")
 
 | ATS | Class | Slug shape |
 |---|---|---|
-| Greenhouse | `GreenhouseScraper` | board slug (`openai`) |
-| Lever | `LeverScraper` | account slug (`anthropic`) |
-| Ashby | `AshbyScraper` | board slug (`ramp`) — surfaces structured salary when Pay Transparency is on |
+| Greenhouse | `GreenhouseScraper` | board slug (`anthropic`, `stripe`) |
+| Lever | `LeverScraper` | account slug (`palantir`, `spotify`) |
+| Ashby | `AshbyScraper` | board slug (`openai`, `ramp`) — surfaces structured salary when Pay Transparency is on |
 | SmartRecruiters | `SmartRecruitersScraper` | company slug (`Filmless`) |
 | Workable | `WorkableScraper` | account slug (`1000heads`) |
-| Rippling | `RipplingScraper` | board slug (`11fs-group-ltd`) |
+| Rippling | `RipplingScraper` | board slug (`rippling`, `11fs-group-ltd`) |
 | Personio | `PersonioScraper` | tenant subdomain (`1komma5grad`) or full URL |
 | Gem | `GemScraper` | board slug (`accel`, `11x-ai`) |
 | Join.com | `JoinComScraper` | company slug (`6pmseason`) |
+| iCIMS | `iCIMSScraper` | tenant subdomain |
+| JazzHR | `JazzHRScraper` | account slug |
+| Breezy | `BreezyScraper` | company slug |
+| Teamtailor | `TeamtailorScraper` | company slug |
+| Pinpoint | `PinpointScraper` | tenant subdomain |
+| BambooHR | `BambooHRScraper` | tenant subdomain |
+| Cornerstone | `CornerstoneScraper` | tenant subdomain |
+| Recruitee | `RecruiteeScraper` | company slug |
+| Recruiterbox | `RecruiterboxScraper` | account slug |
+| Eightfold | `EightfoldScraper` | tenant slug (powers Microsoft, Nvidia, Cisco, AT&T, …) |
 
 **Big-tech custom — stable**, live-validated, single-tenant per scraper:
 
 | Company | Class | Slug |
 |---|---|---|
-| Amazon | `AmazonScraper` | (any — global API) |
+| Amazon | `AmazonScraper` | (any — global API, ~19k jobs) |
 | Apple | `AppleScraper` | (any — global API, CSRF flow) |
-| Microsoft | `MicrosoftScraper` | (any — Eightfold PCSX) |
-| Nvidia | `NvidiaScraper` | (any — Eightfold PCSX) |
 | TikTok | `TikTokScraper` | (any — lifeattiktok.com) |
 | Uber | `UberScraper` | (any — uber.com/api) |
+
+Microsoft, Nvidia, Cisco, and other Eightfold tenants are scraped via
+`EightfoldScraper(slug)` — there is no dedicated `MicrosoftScraper` /
+`NvidiaScraper` class.
 
 **Hybrid jobboards — stable**, companies post directly (not aggregated):
 
@@ -180,7 +211,7 @@ Pipeline() \
 
 ```bash
 jobhive search "platform engineer" --location Paris --limit 20
-jobhive scrape greenhouse openai
+jobhive scrape ashby openai
 jobhive list-ats
 jobhive publish ./data --pattern '{ats}/jobs.csv'
 ```
@@ -303,37 +334,35 @@ export CLOUDFLARE_ACCOUNT_ID=<your-account-id>
 # Optional — public CDN base for nice URLs in the manifest
 export CLOUDFLARE_PUBLIC_BASE_URL=https://your-cdn.example.com
 
-uv run python jobhive/scripts/publish_to_cloudflare.py
+jobhive publish ./data --pattern '{ats}/jobs.csv'
 ```
 
-The script ships ~150 MB of CSV + Parquet to R2 in a few minutes and writes a
-fresh `manifest.json` last so half-finished runs never poison clients.
+The publisher ships ~150 MB of CSV + Parquet to R2 in a few minutes and writes
+a fresh `manifest.json` last so half-finished runs never poison clients.
 
 ## Project layout
 
 ```
-jobhive/
+ats-scrapers/
 ├── src/jobhive/
 │   ├── client.py            # Layer 1: dataset client
 │   ├── manifest.py          # versioned R2 manifest
 │   ├── models.py            # Job / Company / Salary
 │   ├── scrapers/            # Layer 2: per-ATS scrapers
-│   ├── pipeline/            # Layer 3: end-to-end orchestration
-│   ├── discovery/           # find new companies on each ATS
+│   ├── pipeline/            # Layer 3: end-to-end orchestration (stub)
+│   ├── discovery/           # find new companies on each ATS (stub)
 │   ├── enrichment/          # salary, geocoding, classification
 │   ├── storage/             # Cloudflare R2 + dataset publisher
 │   └── cli.py
 ├── tests/
-├── scripts/                 # publish_to_cloudflare.py, etc.
 └── examples/
 ```
 
 ## Tests
 
 ```bash
-cd jobhive
 uv pip install -e ".[dev,publish,scrapers]"
-pytest          # 162 tests, no network
+pytest          # 627 tests, offline (httpx/aiohttp mocked via pytest-httpx)
 ruff check .
 ```
 
