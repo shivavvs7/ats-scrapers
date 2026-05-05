@@ -15,8 +15,10 @@ from jobhive.storage.publisher import _normalize_for_parquet
 def test_object_columns_become_string_dtype() -> None:
     df = pd.DataFrame({"ats_id": [1, "abc", 2.5, None], "title": ["X", "Y", "Z", "W"]})
     out = _normalize_for_parquet(df)
-    assert str(out["ats_id"].dtype) == "string"
-    assert str(out["title"].dtype) == "string"
+    # pandas reports the dtype as either "string" (older) or "str" (3.0+);
+    # what matters is that it's a pandas string-typed column.
+    assert pd.api.types.is_string_dtype(out["ats_id"])
+    assert pd.api.types.is_string_dtype(out["title"])
 
 
 def test_numeric_columns_are_left_alone() -> None:
