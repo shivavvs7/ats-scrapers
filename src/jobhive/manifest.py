@@ -9,10 +9,10 @@ or add new shards without breaking installed clients.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Self
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
-from typing_extensions import Self
 
 from jobhive.exceptions import ManifestError
 from jobhive.models import ATSType

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
@@ -490,7 +490,7 @@ def test_parse_ts_iso_string_with_z_suffix() -> None:
 def test_parse_ts_iso_string_with_offset() -> None:
     result = _parse_ts("2026-04-01T12:00:00+02:00")
     assert result is not None
-    assert result.astimezone(timezone.utc).replace(tzinfo=None) == datetime(
+    assert result.astimezone(UTC).replace(tzinfo=None) == datetime(
         2026, 4, 1, 10, 0, 0
     )
 
