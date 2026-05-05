@@ -3,17 +3,7 @@ name: ci
 on:
   push:
     branches: [main]
-    paths:
-      - "jobhive/**"
-      - ".github/workflows/ci.yml"
   pull_request:
-    paths:
-      - "jobhive/**"
-      - ".github/workflows/ci.yml"
-
-defaults:
-  run:
-    working-directory: jobhive
 
 jobs:
   test:
