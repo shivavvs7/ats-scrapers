@@ -79,7 +79,7 @@ fi
 run_python_script() {
   local script_path="$1"
   local script_name="$2"
-  
+
   set +e
   if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
     # When interactive, show output in both terminal and log file
@@ -91,7 +91,7 @@ run_python_script() {
     local exit_code=$?
   fi
   set -e
-  
+
   if [[ $exit_code -ne 0 ]]; then
     {
       echo "[ERROR] $script_name failed with exit code $exit_code"
@@ -104,24 +104,52 @@ run_python_script() {
   return 0
 }
 
-run_ashby() {
-  local msg="[run_ashby] Starting Ashby pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
+# Same as run_python_script, but forwards additional args to the script.
+# Used by jobhive-only scrapers that take an ATS name as a positional arg.
+run_python_script_with_args() {
+  local script_path="$1"
+  local script_name="$2"
+  shift 2
+
+  set +e
+  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+    "$PYTHON" "$script_path" "$@" 2>&1 | tee -a "$LOG_FILE"
+    local exit_code=${PIPESTATUS[0]}
+  else
+    "$PYTHON" "$script_path" "$@" >> "$LOG_FILE" 2>&1
+    local exit_code=$?
+  fi
+  set -e
+
+  if [[ $exit_code -ne 0 ]]; then
+    {
+      echo "[ERROR] $script_name failed with exit code $exit_code"
+    } >> "$LOG_FILE" 2>&1
+    if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
+      echo "[ERROR] $script_name failed with exit code $exit_code" >&2
+    fi
+    return 1
+  fi
+  return 0
+}
+
+# Generic runner for jobhive-only scrapers (no legacy data/{ats}/main.py).
+# Reads the tenant CSV, scrapes each via jobhive, writes data/{ats}/jobs.csv.
+run_jobhive_ats() {
+  local ats="$1"
+  local msg="[run_jobhive_${ats}] Starting jobhive pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
   {
     echo "$msg"
   } >> "$LOG_FILE" 2>&1
   if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
     echo "$msg"
   fi
-  
-  if ! run_python_script "$PROJECT_ROOT/ashby/main.py" "run_ashby: main.py"; then
+
+  if ! run_python_script_with_args "$PROJECT_ROOT/jobhive/scripts/run_pipeline.py" "run_jobhive_${ats}" "$ats"; then
     return 1
   fi
-  
-  if ! run_python_script "$PROJECT_ROOT/ashby/export_to_csv.py" "run_ashby: export_to_csv.py"; then
-    return 1
-  fi
-  
-  msg="[run_ashby] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
+
+  msg="[run_jobhive_${ats}] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
   {
     echo "$msg"
   } >> "$LOG_FILE" 2>&1
@@ -130,223 +158,42 @@ run_ashby() {
   fi
 }
 
-run_greenhouse() {
-  local msg="[run_greenhouse] Starting Greenhouse pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-  
-  if ! run_python_script "$PROJECT_ROOT/greenhouse/main.py" "run_greenhouse: main.py"; then
-    return 1
-  fi
-  
-  if ! run_python_script "$PROJECT_ROOT/greenhouse/export_to_csv.py" "run_greenhouse: export_to_csv.py"; then
-    return 1
-  fi
-  
-  msg="[run_greenhouse] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-}
+run_cornerstone() { run_jobhive_ats cornerstone; }
+run_icims()       { run_jobhive_ats icims; }
+run_breezy()      { run_jobhive_ats breezy; }
+run_successfactors() { run_jobhive_ats successfactors; }
+run_taleo()       { run_jobhive_ats taleo; }
+run_oracle()      { run_jobhive_ats oracle; }
+run_phenom()      { run_jobhive_ats phenom; }
+run_pinpoint()    { run_jobhive_ats pinpoint; }
+run_recruiterbox(){ run_jobhive_ats recruiterbox; }
+run_eightfold()   { run_jobhive_ats eightfold; }
+run_bamboohr()    { run_jobhive_ats bamboohr; }
+run_teamtailor()  { run_jobhive_ats teamtailor; }
+run_jazzhr()      { run_jobhive_ats jazzhr; }
+run_recruitee()   { run_jobhive_ats recruitee; }
+run_bundesagentur(){ run_jobhive_ats bundesagentur; }
+run_arbetsformedlingen(){ run_jobhive_ats arbetsformedlingen; }
 
-run_lever() {
-  local msg="[run_lever] Starting Lever pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-  
-  if ! run_python_script "$PROJECT_ROOT/lever/main.py" "run_lever: main.py"; then
-    return 1
-  fi
-  
-  if ! run_python_script "$PROJECT_ROOT/lever/export_to_csv.py" "run_lever: export_to_csv.py"; then
-    return 1
-  fi
-  
-  msg="[run_lever] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-}
+run_ashby()    { run_jobhive_ats ashby; }
 
-run_workable() {
-  local msg="[run_workable] Starting Workable pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
+run_greenhouse()    { run_jobhive_ats greenhouse; }
 
-  if ! run_python_script "$PROJECT_ROOT/workable/main.py" "run_workable: main.py"; then
-    return 1
-  fi
+run_lever()    { run_jobhive_ats lever; }
 
-  if ! run_python_script "$PROJECT_ROOT/workable/export_to_csv.py" "run_workable: export_to_csv.py"; then
-    return 1
-  fi
+run_workable()    { run_jobhive_ats workable; }
 
-  msg="[run_workable] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-}
+run_workday()    { run_jobhive_ats workday; }
 
-run_workday() {
-  local msg="[run_workday] Starting Workday pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
+run_avature()    { run_jobhive_ats avature; }
 
-  if ! run_python_script "$PROJECT_ROOT/workday/main.py" "run_workday: main.py"; then
-    return 1
-  fi
+run_google()    { run_jobhive_ats google; }
 
-  if ! run_python_script "$PROJECT_ROOT/workday/export_to_csv.py" "run_workday: export_to_csv.py"; then
-    return 1
-  fi
+run_amazon()    { run_jobhive_ats amazon; }
 
-  msg="[run_workday] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-}
+run_meta()    { run_jobhive_ats meta; }
 
-run_avature() {
-  local msg="[run_avature] Starting Avature pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-
-  if ! run_python_script "$PROJECT_ROOT/avature/main.py" "run_avature: main.py"; then
-    return 1
-  fi
-
-  if ! run_python_script "$PROJECT_ROOT/avature/export_to_csv.py" "run_avature: export_to_csv.py"; then
-    return 1
-  fi
-
-  msg="[run_avature] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-}
-
-run_google() {
-  local msg="[run_google] Starting Google pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-
-  if ! run_python_script "$PROJECT_ROOT/google/main.py" "run_google: main.py"; then
-    return 1
-  fi
-
-  msg="[run_google] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-}
-
-run_amazon() {
-  local msg="[run_amazon] Starting Amazon pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-
-  if ! run_python_script "$PROJECT_ROOT/amazon/main.py" "run_amazon: main.py"; then
-    return 1
-  fi
-
-  msg="[run_amazon] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-}
-
-run_meta() {
-  local msg="[run_meta] Starting Meta pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-
-  if ! run_python_script "$PROJECT_ROOT/meta/main.py" "run_meta: main.py"; then
-    return 1
-  fi
-
-  msg="[run_meta] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-}
-
-run_apple() {
-  local msg="[run_apple] Starting Apple pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-
-  if ! run_python_script "$PROJECT_ROOT/apple/main.py" "run_apple: main.py"; then
-    return 1
-  fi
-
-  msg="[run_apple] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-}
+run_apple()    { run_jobhive_ats apple; }
 
 run_nvidia() {
   local msg="[run_nvidia] Starting NVIDIA pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
@@ -392,27 +239,7 @@ run_microsoft() {
   fi
 }
 
-run_tiktok() {
-  local msg="[run_tiktok] Starting TikTok pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-
-  if ! run_python_script "$PROJECT_ROOT/tiktok/main.py" "run_tiktok: main.py"; then
-    return 1
-  fi
-
-  msg="[run_tiktok] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-}
+run_tiktok()    { run_jobhive_ats tiktok; }
 
 run_cursor() {
   local msg="[run_cursor] Starting Cursor pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
@@ -436,153 +263,17 @@ run_cursor() {
   fi
 }
 
-run_tesla() {
-  local msg="[run_tesla] Starting Tesla pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
+run_tesla()    { run_jobhive_ats tesla; }
 
-  if ! run_python_script "$PROJECT_ROOT/tesla/main.py" "run_tesla: main.py"; then
-    return 1
-  fi
+run_mercor()    { run_jobhive_ats mercor; }
 
-  msg="[run_tesla] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-}
+run_smartrecruiters()    { run_jobhive_ats smartrecruiters; }
 
-run_mercor() {
-  local msg="[run_mercor] Starting Mercor pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
+run_join()    { run_jobhive_ats join_com; }
 
-  if ! run_python_script "$PROJECT_ROOT/mercor/main.py" "run_mercor: main.py"; then
-    return 1
-  fi
+run_rippling()    { run_jobhive_ats rippling; }
 
-  msg="[run_mercor] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-}
-
-run_smartrecruiters() {
-  local msg="[run_smartrecruiters] Starting SmartRecruiters pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-
-  if ! run_python_script "$PROJECT_ROOT/smartrecruiters/main.py" "run_smartrecruiters: main.py"; then
-    return 1
-  fi
-
-  if ! run_python_script "$PROJECT_ROOT/smartrecruiters/export_to_csv.py" "run_smartrecruiters: export_to_csv.py"; then
-    return 1
-  fi
-
-  msg="[run_smartrecruiters] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-}
-
-run_join() {
-  local msg="[run_join] Starting Join.com pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-
-  if ! run_python_script "$PROJECT_ROOT/join_com/main.py" "run_join: main.py"; then
-    return 1
-  fi
-
-  if ! run_python_script "$PROJECT_ROOT/join_com/export_to_csv.py" "run_join: export_to_csv.py"; then
-    return 1
-  fi
-
-  msg="[run_join] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-}
-
-run_rippling() {
-  local msg="[run_rippling] Starting Rippling pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-
-  if ! run_python_script "$PROJECT_ROOT/rippling/main.py" "run_rippling: main.py"; then
-    return 1
-  fi
-
-  if ! run_python_script "$PROJECT_ROOT/rippling/export_to_csv.py" "run_rippling: export_to_csv.py"; then
-    return 1
-  fi
-
-  msg="[run_rippling] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-}
-
-run_personio() {
-  local msg="[run_personio] Starting Personio pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-
-  if ! run_python_script "$PROJECT_ROOT/personio/main.py" "run_personio: main.py"; then
-    return 1
-  fi
-
-  if ! run_python_script "$PROJECT_ROOT/personio/export_to_csv.py" "run_personio: export_to_csv.py"; then
-    return 1
-  fi
-
-  msg="[run_personio] Completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
-  {
-    echo "$msg"
-  } >> "$LOG_FILE" 2>&1
-  if [[ ${LOG_TO_TERMINAL:-0} -eq 1 ]]; then
-    echo "$msg"
-  fi
-}
+run_personio()    { run_jobhive_ats personio; }
 
 run_ai() {
   local msg="[run_ai] Starting AI pipeline at $(date '+%Y-%m-%d %H:%M:%S')..."
@@ -777,6 +468,86 @@ case "$JOB" in
     ;;
   smartrecruiters)
     if ! run_smartrecruiters; then
+      FAILED=1
+    fi
+    ;;
+  cornerstone)
+    if ! run_cornerstone; then
+      FAILED=1
+    fi
+    ;;
+  icims)
+    if ! run_icims; then
+      FAILED=1
+    fi
+    ;;
+  breezy)
+    if ! run_breezy; then
+      FAILED=1
+    fi
+    ;;
+  successfactors)
+    if ! run_successfactors; then
+      FAILED=1
+    fi
+    ;;
+  taleo)
+    if ! run_taleo; then
+      FAILED=1
+    fi
+    ;;
+  oracle)
+    if ! run_oracle; then
+      FAILED=1
+    fi
+    ;;
+  phenom)
+    if ! run_phenom; then
+      FAILED=1
+    fi
+    ;;
+  pinpoint)
+    if ! run_pinpoint; then
+      FAILED=1
+    fi
+    ;;
+  recruiterbox)
+    if ! run_recruiterbox; then
+      FAILED=1
+    fi
+    ;;
+  eightfold)
+    if ! run_eightfold; then
+      FAILED=1
+    fi
+    ;;
+  bamboohr)
+    if ! run_bamboohr; then
+      FAILED=1
+    fi
+    ;;
+  teamtailor)
+    if ! run_teamtailor; then
+      FAILED=1
+    fi
+    ;;
+  jazzhr)
+    if ! run_jazzhr; then
+      FAILED=1
+    fi
+    ;;
+  recruitee)
+    if ! run_recruitee; then
+      FAILED=1
+    fi
+    ;;
+  bundesagentur)
+    if ! run_bundesagentur; then
+      FAILED=1
+    fi
+    ;;
+  arbetsformedlingen)
+    if ! run_arbetsformedlingen; then
       FAILED=1
     fi
     ;;

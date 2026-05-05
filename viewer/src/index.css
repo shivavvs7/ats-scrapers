@@ -1,0 +1,99 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans:
+    "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+@layer base {
+  :root {
+    --bg: #fafaf9;
+    --fg: #0a0a0a;
+    --muted: #6b7280;
+    --line: #e7e5e4;
+    --accent: #0a0a0a;
+
+    --c-amber: #d97706;
+    --c-blue: #2563eb;
+    --c-emerald: #059669;
+    --c-violet: #7c3aed;
+    --c-rose: #e11d48;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0a0a0a;
+      --fg: #fafaf9;
+      --muted: #9ca3af;
+      --line: #1f1f1f;
+      --accent: #fafaf9;
+
+      --c-amber: #fbbf24;
+      --c-blue: #60a5fa;
+      --c-emerald: #34d399;
+      --c-violet: #a78bfa;
+      --c-rose: #fb7185;
+    }
+  }
+
+  html,
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: var(--fg);
+    color: var(--bg);
+  }
+}
+
+.dotgrid {
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    color-mix(in oklab, var(--fg) 12%, transparent) 1px,
+    transparent 0
+  );
+  background-size: 24px 24px;
+}
+
+.hatch {
+  --hatch-color: var(--fg);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent 0,
+    transparent 7px,
+    color-mix(in oklab, var(--hatch-color) 9%, transparent) 7px,
+    color-mix(in oklab, var(--hatch-color) 9%, transparent) 8px
+  );
+}
+
+.checker {
+  background-image:
+    linear-gradient(45deg, color-mix(in oklab, var(--fg) 5%, transparent) 25%, transparent 25%),
+    linear-gradient(-45deg, color-mix(in oklab, var(--fg) 5%, transparent) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, color-mix(in oklab, var(--fg) 5%, transparent) 75%),
+    linear-gradient(-45deg, transparent 75%, color-mix(in oklab, var(--fg) 5%, transparent) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+@keyframes blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+.cursor-blink {
+  animation: blink 1.1s steps(1) infinite;
+}
+
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.marquee-track {
+  animation: marquee 38s linear infinite;
+}
