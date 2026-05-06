@@ -73,13 +73,25 @@ class JoinComScraper(BaseScraper):
             ) from exc
         if response.status_code == 404:
             raise CompanyNotFoundError(f"join.com company not found: {self.company_slug}")
-        # Slug-to-id is exposed via embedded JSON in the page; grep it.
-        match = re.search(r'"id"\s*:\s*"?(\d+)"?', response.text)
-        if not match:
-            raise ScraperError(
-                f"join.com page for {self.company_slug} did not expose a company id"
-            )
-        return match.group(1)
+        # The page embeds the same Next.js page data several times. The
+        # *first* numeric ``"id"`` in the body is **not** the company id
+        # — that's the first department/category in the picker (e.g.
+        # ``"id":233,"name":"Administration and Secretariat"``). The
+        # canonical anchors are ``"company":{"id":N`` (explicit company
+        # object) or ``"companyId":N`` (used on every job item). Either
+        # works; ``company.id`` first because it's specific to the
+        # employer, then ``companyId`` as a fallback.
+        body = response.text
+        for pattern in (
+            r'"company"\s*:\s*\{\s*"id"\s*:\s*"?(\d+)"?',
+            r'"companyId"\s*:\s*"?(\d+)"?',
+        ):
+            match = re.search(pattern, body)
+            if match:
+                return match.group(1)
+        raise ScraperError(
+            f"join.com page for {self.company_slug} did not expose a company id"
+        )
 
     def _parse_job(self, item: dict[str, Any]) -> Job:
         raw: dict[str, Any] = {}
