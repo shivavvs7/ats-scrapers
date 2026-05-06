@@ -73,15 +73,37 @@ class JoinComScraper(BaseScraper):
             ) from exc
         if response.status_code == 404:
             raise CompanyNotFoundError(f"join.com company not found: {self.company_slug}")
+        body = response.text
         # The page embeds the same Next.js page data several times. The
         # *first* numeric ``"id"`` in the body is **not** the company id
         # — that's the first department/category in the picker (e.g.
-        # ``"id":233,"name":"Administration and Secretariat"``). The
-        # canonical anchors are ``"company":{"id":N`` (explicit company
-        # object) or ``"companyId":N`` (used on every job item). Either
-        # works; ``company.id`` first because it's specific to the
-        # employer, then ``companyId`` as a fallback.
-        body = response.text
+        # ``"id":233,"name":"Administration and Secretariat"``). Anchor
+        # on the explicit company object instead, and *validate* that
+        # the embedded ``domain`` matches the slug we asked for. join.com
+        # has been observed serving template/default pages for newly-
+        # created tenants where ``"company":{"id":233,...}`` (greenteg)
+        # is rendered as a placeholder before the real tenant data
+        # hydrates — without the domain check we would attribute
+        # greenteg's jobs to whichever slug was being scraped.
+        with_domain = re.search(
+            r'"company"\s*:\s*\{\s*'
+            r'"id"\s*:\s*"?(?P<id>\d+)"?\s*,\s*'
+            r'"name"\s*:\s*"[^"]*"\s*,\s*'
+            r'"domain"\s*:\s*"(?P<domain>[^"]+)"',
+            body,
+        )
+        if with_domain:
+            resolved_id = with_domain.group("id")
+            resolved_domain = with_domain.group("domain").lower()
+            if resolved_domain != self.company_slug.lower():
+                raise CompanyNotFoundError(
+                    f"join.com slug {self.company_slug!r} resolved to a "
+                    f"different tenant (domain={resolved_domain!r}, "
+                    f"id={resolved_id}) — likely a placeholder/cached page"
+                )
+            return resolved_id
+        # Fallbacks for pages that don't include the domain field. These
+        # don't get a domain check, so they're a last resort.
         for pattern in (
             r'"company"\s*:\s*\{\s*"id"\s*:\s*"?(\d+)"?',
             r'"companyId"\s*:\s*"?(\d+)"?',
