@@ -186,7 +186,13 @@ def test_personio_accepts_full_url(httpx_mock) -> None:
 
 # --- Gem ---------------------------------------------------------------------
 
+@pytest.mark.httpx_mock(assert_all_requests_were_expected=False)
 def test_gem_parses_jobpostings(httpx_mock) -> None:
+    # The scraper hits the GraphQL endpoint twice: once for the list
+    # (``JobBoardList``) and once for the batched detail enrichment
+    # (``ExternalJobPostingQuery``). The list mock below is the only one
+    # that matters for this test; the detail call is allowed to go
+    # unmatched (the assertion above relaxes that check).
     httpx_mock.add_response(
         url="https://jobs.gem.com/api/public/graphql/batch",
         json=[
