@@ -40,6 +40,7 @@ truncates the summary or omits employment type / posted date.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import html
 import json
 import re
@@ -326,12 +327,10 @@ def _apply_jsonld_to_job(job: Job, html_text: str) -> None:
     if not job.posted_at:
         date_raw = posting.get("datePosted")
         if isinstance(date_raw, str) and date_raw:
-            try:
+            with contextlib.suppress(ValueError):
                 job.posted_at = datetime.fromisoformat(
                     date_raw.replace("Z", "+00:00")
                 )
-            except ValueError:
-                pass
 
     if not job.department:
         cat = posting.get("occupationalCategory")

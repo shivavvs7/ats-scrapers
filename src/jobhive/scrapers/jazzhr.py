@@ -33,6 +33,7 @@ follows the same pattern as the Eightfold scraper:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import html
 import json
 import re
@@ -136,24 +137,27 @@ class JazzHRScraper(BaseScraper):
     async def _fetch_async(self) -> list[Job]:
         if self.client_kind == "httpcloak":
             html_text = await asyncio.to_thread(self._fetch_via_httpcloak_sync)
-            jobs = self._parse_listing(html_text)
-        else:
-            # httpx or auto: try httpx first
-            try:
-                html_text = await self._fetch_via_httpx()
-            except _WAFBlocked as exc:
-                if self.client_kind == "httpx":
-                    raise ScraperError(
-                        f"JazzHR ({self.company_slug}) blocked by WAF (403); "
-                        f"set client_kind='httpcloak' to bypass"
-                    ) from exc
-                html_text = await asyncio.to_thread(self._fetch_via_httpcloak_sync)
-            jobs = self._parse_listing(html_text)
+            return self._parse_listing(html_text)
+
+        # httpx or auto: try httpx first
+        try:
+            html_text = await self._fetch_via_httpx()
+        except _WAFBlocked as exc:
+            if self.client_kind == "httpx":
+                raise ScraperError(
+                    f"JazzHR ({self.company_slug}) blocked by WAF (403); "
+                    f"set client_kind='httpcloak' to bypass"
+                ) from exc
+            # auto: fell back to httpcloak — skip detail enrichment too,
+            # since per-job pages on a WAF-blocked tenant would 403 the
+            # same way and we don't want a hidden httpx call on the
+            # httpcloak path.
+            html_text = await asyncio.to_thread(self._fetch_via_httpcloak_sync)
+            return self._parse_listing(html_text)
+        jobs = self._parse_listing(html_text)
 
         # Detail enrichment via JSON-LD on each job's detail page.
-        # WAF-blocked tenants stay on httpcloak for the listing call but
-        # we still try httpx for details — those pages aren't usually
-        # WAF-protected. Best-effort: errors fall through silently.
+        # Best-effort: errors fall through silently.
         if jobs:
             async with httpx.AsyncClient(
                 timeout=self.timeout, follow_redirects=True,
@@ -361,14 +365,12 @@ def _apply_jsonld_to_job(job: Job, html_text: str) -> None:
     if not job.posted_at:
         date_raw = posting.get("datePosted")
         if isinstance(date_raw, str) and date_raw:
-            try:
-                # JazzHR uses bare dates (``2026-04-18``); fromisoformat
-                # accepts both bare and full timestamps.
+            # JazzHR uses bare dates (``2026-04-18``); fromisoformat
+            # accepts both bare and full timestamps.
+            with contextlib.suppress(ValueError):
                 job.posted_at = datetime.fromisoformat(
                     date_raw.replace("Z", "+00:00")
                 )
-            except ValueError:
-                pass
 
     if not job.requisition_id:
         code = posting.get("uniqueJobCode")
@@ -508,10 +510,7 @@ def _salary_from_jsonld(
                 if currency
                 else f"{sal_min:,.0f}–{sal_max:,.0f}"
             )
-            if period:
-                summary = f"{base} / {period.lower()}"
-            else:
-                summary = base
+            summary = f"{base} / {period.lower()}" if period else base
 
     if sal_min is None and currency is None:
         return None

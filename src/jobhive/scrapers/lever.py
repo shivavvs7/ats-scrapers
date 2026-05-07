@@ -150,10 +150,11 @@ class LeverScraper(BaseScraper):
         # Description: ``descriptionPlain`` is the canonical body. Cap
         # at 10kB; the schema field allows up to that.
         description = item.get("descriptionPlain") or item.get("description")
-        if isinstance(description, str):
-            description = description.strip()[:10_000] or None
-        else:
-            description = None
+        description = (
+            description.strip()[:10_000] or None
+            if isinstance(description, str)
+            else None
+        )
 
         raw: dict[str, Any] = {}
         if categories:
