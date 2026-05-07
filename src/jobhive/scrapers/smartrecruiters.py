@@ -147,14 +147,16 @@ class SmartRecruitersScraper(BaseScraper):
         location = item.get("location") or {}
         loc_str = _format_location(location) if isinstance(location, dict) else None
 
-        # ``location.remote`` and ``location.hybrid`` are explicit booleans.
+        # ``location.remote`` is an explicit bool; ``country == "remote"``
+        # is the legacy convention some tenants still use.
         is_remote: bool | None = None
         if isinstance(location, dict):
-            if isinstance(location.get("remote"), bool) and location["remote"]:
+            remote_flag = location.get("remote")
+            if (isinstance(remote_flag, bool) and remote_flag) or (
+                location.get("country") == "remote"
+            ):
                 is_remote = True
-            elif location.get("country") == "remote":
-                is_remote = True
-            elif isinstance(location.get("remote"), bool):
+            elif isinstance(remote_flag, bool):
                 is_remote = False  # explicitly non-remote
 
         department = (
