@@ -358,14 +358,12 @@ class EuresScraper(BaseScraper):
         # ``positionScheduleCode`` (full-time / part-time) — used as a
         # fallback when ``positionOfferingCode`` is missing/unspecific.
         schedule = item.get("positionScheduleCode")
-        if isinstance(schedule, str) and schedule.strip():
+        if isinstance(schedule, str) and schedule.strip() and not employment_type:
             sched_norm = schedule.strip().lower()
             if sched_norm in ("fulltime", "full-time", "full_time"):
-                if not employment_type:
-                    employment_type = "FULL_TIME"
+                employment_type = "FULL_TIME"
             elif sched_norm in ("parttime", "part-time", "part_time"):
-                if not employment_type:
-                    employment_type = "PART_TIME"
+                employment_type = "PART_TIME"
 
         raw: dict[str, Any] = {}
         for k in ("euresFlag", "numberOfPosts", "lastModificationDate",
