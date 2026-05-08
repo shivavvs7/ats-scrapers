@@ -17,11 +17,16 @@ known selectors with a final fallback to plain ``<a href=".../JobDetail/...">``
 anchors.
 
 Avature is selective about clients — many tenants 406-block any HTTP/2
-client (httpx, curl, even curl_cffi with Chrome TLS impersonation) at
-the load-balancer layer. The block isn't TLS-fingerprint-based but
-something post-handshake (header order or h2 settings frame). The only
-workaround is a real browser, which we proxy via Browserbase + Playwright
-CDP. We pay that cost only when the direct HTTP path returns 406.
+client (httpx, curl) at the load-balancer layer. The block is
+post-handshake (header order / h2 settings frame). Two fallbacks, in
+order of cost:
+
+1. ``httpcloak`` (free, ~1-10s/page): a TLS+h2-impersonation client
+   that gets through 80%+ of 406-blocked tenants in our sample.
+2. Browserbase + Playwright CDP (paid, ~$0.10/min): real Chrome,
+   guaranteed to render but expensive and occasionally hangs at the
+   session-create step. Reserved for the few tenants ``httpcloak``
+   still can't crack.
 """
 
 from __future__ import annotations
@@ -143,12 +148,18 @@ class AvatureScraper(BaseScraper):
         try:
             return await self._fetch_direct(base, company)
         except _BlockedTenantError:
-            # Direct path exhausted retries on 406. Avature's LB blocks
-            # non-browser HTTP/2 clients on some tenants (verified that
-            # local headless Chromium also 406s — only fingerprint-stealth
-            # browsers get through). Try the Browserbase fallback only if
-            # the user explicitly opted in by configuring credentials.
-            return await self._fetch_via_browserbase_optional(base, company)
+            pass  # 406 — try the cheaper fallback first.
+
+        # Cheap fallback: httpcloak's TLS+h2 fingerprint passes the LB on
+        # ~80% of the previously 406-blocked tenants we sampled. No paid
+        # service involved.
+        try:
+            return await self._fetch_via_httpcloak(base, company)
+        except _BlockedTenantError:
+            pass  # rare: even httpcloak couldn't get through.
+
+        # Last resort: real browser via Browserbase Sessions.
+        return await self._fetch_via_browserbase_optional(base, company)
 
     async def _fetch_via_browserbase_optional(
         self, base: str, company: str,
@@ -205,6 +216,107 @@ class AvatureScraper(BaseScraper):
         except Exception as exc:  # log + continue is intentional
             log.warning("Avature %s: Browserbase fallback failed (%s).", base, exc)
             return []
+
+    async def _fetch_via_httpcloak(self, base: str, company: str) -> list[Job]:
+        """TLS+h2 impersonation fallback. Free, ~1-10s/page, beats
+        Avature's 406 LB block on ~80% of the tenants where httpx
+        fails. Verified live on Unifi / sandboxbnc / uop (the same
+        tenants that hung Browserbase Sessions in 2026-05).
+
+        Raises :class:`_BlockedTenantError` when even httpcloak gets
+        406'd — the rare case that escalates to Browserbase Sessions.
+        """
+        try:
+            import httpcloak  # noqa: F401  — availability check
+        except ImportError as exc:
+            raise ScraperError(
+                "Avature 406 fallback needs httpcloak — "
+                "`pip install httpcloak`."
+            ) from exc
+
+        seen: set[str] = set()
+        all_jobs: list[Job] = []
+        for page_num in range(MAX_PAGES):
+            offset = page_num * PAGE_SIZE
+            try:
+                html_text = await asyncio.to_thread(
+                    self._fetch_page_via_httpcloak_sync, base, offset
+                )
+            except _BlockedTenantError:
+                if page_num == 0:
+                    raise  # Never made it past page 0 — escalate.
+                break  # Mid-pagination block — keep what we have.
+            page_jobs = self._parse_page(html_text, base, company)
+            new = [j for j in page_jobs if j.ats_id not in seen]
+            if not new:
+                break
+            for j in new:
+                seen.add(j.ats_id)
+            all_jobs.extend(new)
+            if len(page_jobs) < PAGE_SIZE:
+                break
+
+        # Same TLS fingerprint for detail enrichment so we don't lose
+        # the descriptions we just unlocked. Best-effort — a single
+        # detail failure must not throw away the listing row.
+        sem = asyncio.Semaphore(DETAIL_CONCURRENCY)
+        await asyncio.gather(*(
+            self._enrich_with_detail_via_httpcloak(sem, job)
+            for job in all_jobs
+        ))
+        return all_jobs
+
+    def _fetch_page_via_httpcloak_sync(self, base: str, offset: int) -> str:
+        import httpcloak
+
+        url = f"{base}/careers/SearchJobs/"
+        try:
+            response = httpcloak.get(
+                url,
+                params={"jobOffset": offset, "jobRecordsPerPage": PAGE_SIZE},
+                headers=_BROWSER_HEADERS,
+                timeout=self.timeout,
+            )
+        except Exception as exc:
+            raise ScraperError(
+                f"Avature ({base}) httpcloak fetch failed at "
+                f"offset={offset}: {exc}"
+            ) from exc
+        if response.status_code == 406:
+            raise _BlockedTenantError()
+        if response.status_code == 404:
+            raise CompanyNotFoundError(f"Avature tenant not found: {base}")
+        if response.status_code != 200:
+            raise ScraperError(
+                f"Avature ({base}) httpcloak returned {response.status_code} "
+                f"at offset={offset}"
+            )
+        return response.text
+
+    async def _enrich_with_detail_via_httpcloak(
+        self, sem: asyncio.Semaphore, job: Job,
+    ) -> None:
+        async with sem:
+            try:
+                response = await asyncio.to_thread(
+                    self._http_get_via_httpcloak_sync, str(job.url)
+                )
+            except Exception:
+                return
+        if response is None or response.status_code != 200:
+            return
+        fields, description = _parse_detail(response.text)
+        _apply_detail_to_job(job, fields, description)
+
+    def _http_get_via_httpcloak_sync(self, url: str):
+        import httpcloak
+
+        try:
+            return httpcloak.get(
+                url, headers=_BROWSER_HEADERS, timeout=self.timeout,
+            )
+        except Exception:
+            return None
 
     async def _fetch_direct(self, base: str, company: str) -> list[Job]:
         seen: set[str] = set()
