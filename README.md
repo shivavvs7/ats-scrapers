@@ -172,9 +172,9 @@ it bigger:
   description / salary / employment-type only when the ATS surfaces
   them. If you find a tenant where a field is structurally available
   but we're missing it, a one-line PR is welcome.
-- **Discover new tenants** — we maintain a
-  `{ats}/{ats}_companies.csv` per ATS. New rows = new companies in
-  the dataset.
+- **Add new tenants** — every supported ATS has a CSV under
+  [`ats-companies/`](./ats-companies/). New rows = new companies in
+  the dataset. One-line PRs are welcome.
 - **Report broken scrapers** — open an issue with the slug and the
   failure mode. ATS APIs drift; flagging a regression early keeps the
   dataset accurate for everyone.
