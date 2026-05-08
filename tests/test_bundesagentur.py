@@ -140,3 +140,49 @@ def test_page_failure_logs_page_skip_not_subtree_skip(
     ]
     assert page_warnings, "expected page-level warning"
     assert not subtree_warnings, "page failure must NOT escalate to subtree skip"
+
+
+# --- Contract-break failures: must crash, not soft-fail --------------------
+#
+# Codex review on #14: the broad ``except ScraperError`` in ``_exhaust_query``
+# was swallowing more than just persistent WAF blocks. A 401/404 contract
+# break, malformed JSON, or non-retryable 4xx all raised the same
+# ``ScraperError`` — which the soft-fail handler caught and turned into a
+# silent ``[]``. The scraper now distinguishes ``_PageFetchExhaustedError``
+# (transient, swallowed) from plain ``ScraperError`` (contract break,
+# raised). These tests pin that distinction.
+
+
+def test_root_probe_401_crashes_not_skips(httpx_mock) -> None:
+    """A 401 on the root probe is a contract break (auth removed / API
+    moved), not a transient WAF block. The scraper must crash so an
+    operator notices — silently returning ``[]`` would publish a
+    wholesale undercount as a successful run."""
+    from jobhive.exceptions import ScraperError
+    httpx_mock.add_response(url=_API_RE, status_code=401, is_reusable=True)
+    with pytest.raises(ScraperError):
+        BundesagenturScraper("any").fetch()
+
+
+def test_root_probe_404_crashes_not_skips(httpx_mock) -> None:
+    """Same contract for 404 — endpoint moved / decommissioned should
+    crash, not silently produce ``[]``."""
+    from jobhive.exceptions import ScraperError
+    httpx_mock.add_response(url=_API_RE, status_code=404, is_reusable=True)
+    with pytest.raises(ScraperError):
+        BundesagenturScraper("any").fetch()
+
+
+def test_malformed_json_crashes_not_skips(httpx_mock) -> None:
+    """A 200 OK with a malformed body is a contract break — the schema
+    we're parsing against is unknown — and must crash rather than
+    soft-fail to ``[]``."""
+    from jobhive.exceptions import ScraperError
+    httpx_mock.add_response(
+        url=_API_RE,
+        status_code=200,
+        content=b"<html>Maintenance</html>",
+        is_reusable=True,
+    )
+    with pytest.raises(ScraperError):
+        BundesagenturScraper("any").fetch()

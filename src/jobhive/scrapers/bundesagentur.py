@@ -97,6 +97,19 @@ _SUBDIVISION_FACETS = (
 MAX_SUBDIVISION_DEPTH = len(_SUBDIVISION_FACETS)
 
 
+class _PageFetchExhaustedError(ScraperError):
+    """Internal signal that ``_fetch_page`` exhausted its retry budget on
+    a *transient* failure class (persistent 403 / 429 / 5xx, or a network
+    error that didn't resolve before MAX_RETRIES).
+
+    Distinguished from ``ScraperError`` because the soft-fail callers
+    (``_exhaust_query`` / ``_fan_out_pages``) only want to swallow this
+    specific case — not contract breaks (401, 404, non-retryable status,
+    malformed JSON), which still raise plain ``ScraperError`` and crash
+    the scrape so an operator notices instead of silently undercounting.
+    """
+
+
 @ScraperRegistry.register(ATSType.BUNDESAGENTUR)
 class BundesagenturScraper(BaseScraper):
     """Bundesagentur für Arbeit (DE) jobs API. Single-source scraper —
@@ -147,12 +160,18 @@ class BundesagenturScraper(BaseScraper):
             first = await self._fetch_page(
                 client, sem, params={**base_params, "size": 1, "page": 1},
             )
-        except ScraperError as exc:
-            # Probe failed after retries (most likely persistent WAF block).
-            # Probe failures must never silently look like ``maxErgebnisse=0``
-            # — that would drop the whole subtree (and at depth=0 the entire
-            # scrape) without anyone noticing. Log loudly and skip just this
-            # subtree; sibling buckets continue.
+        except _PageFetchExhaustedError as exc:
+            # Probe exhausted retries on a transient class (persistent WAF
+            # block or a network error that didn't resolve in time). We
+            # soft-fail this *one* subtree only — sibling buckets keep
+            # going. Probe failures must never silently look like
+            # ``maxErgebnisse=0`` (that would drop the whole subtree and
+            # at depth=0 the entire scrape) so we log loudly.
+            #
+            # Non-transient failures (401/404 contract breaks, malformed
+            # JSON, etc.) raise plain ``ScraperError`` from ``_fetch_page``
+            # and propagate up here uncaught — those crash the scrape
+            # rather than produce a silent undercount.
             logger.warning(
                 "Bundesagentur probe failed for params=%s depth=%d — "
                 "subtree skipped, output will undercount: %s",
@@ -231,12 +250,17 @@ class BundesagenturScraper(BaseScraper):
             params = {**base_params, "size": PAGE_SIZE, "page": page}
             try:
                 payload = await self._fetch_page(client, sem, params=params)
-            except ScraperError as exc:
+            except _PageFetchExhaustedError as exc:
                 # Page-level soft-fail: lose at most ``PAGE_SIZE`` jobs from
                 # this one page; keep working on the rest of the leaf and
-                # the rest of the tree. (Page failures are bounded; probe
-                # failures are not, which is why ``_exhaust_query`` handles
-                # them separately.)
+                # the rest of the tree. Bounded loss from transient WAF /
+                # network exhaustion is acceptable. (Probe failures hit
+                # the same class but ``_exhaust_query`` handles them
+                # separately because they affect a whole subtree.)
+                #
+                # Non-transient failures (contract breaks, bad JSON) raise
+                # plain ``ScraperError`` and propagate uncaught — better
+                # to crash than to silently undercount.
                 logger.warning(
                     "Bundesagentur page %d/%d failed for params=%s — "
                     "page skipped (~%d jobs lost): %s",
@@ -283,15 +307,16 @@ class BundesagenturScraper(BaseScraper):
             # auth failure (the API key never expires); back off and retry.
             if r.status_code in (403, 429) or 500 <= r.status_code < 600:
                 if attempt == MAX_RETRIES:
-                    # Persistent WAF/server failure — raise so callers can
-                    # decide what to do. ``_exhaust_query`` treats this as
-                    # a subtree-loss (logs + skips); ``_fan_out_pages``
-                    # treats it as a page-loss (logs + continues). We must
-                    # NOT silently return an empty payload here: that would
-                    # be indistinguishable from a real ``maxErgebnisse=0``
+                    # Persistent WAF/server failure — raise the *narrowed*
+                    # ``_PageFetchExhaustedError`` so callers can soft-fail it
+                    # specifically. ``_exhaust_query`` treats this as a
+                    # subtree-loss (logs + skips); ``_fan_out_pages`` treats
+                    # it as a page-loss (logs + continues). We must NOT
+                    # silently return an empty payload here: that would be
+                    # indistinguishable from a real ``maxErgebnisse=0``
                     # response and would silently abandon the whole subtree
                     # whenever a probe gets WAF-blocked.
-                    raise ScraperError(
+                    raise _PageFetchExhaustedError(
                         f"Bundesagentur returned {r.status_code} for {params} "
                         f"after {MAX_RETRIES} retries"
                     )
@@ -305,11 +330,18 @@ class BundesagenturScraper(BaseScraper):
                 delay = base * (1 + random.uniform(-RETRY_JITTER, RETRY_JITTER))
                 await asyncio.sleep(delay)
                 continue
+            # Non-retryable status (401 auth break, 404 endpoint moved,
+            # 4xx other than 403/429, etc.) — these are contract breaks,
+            # not transient. Raise plain ``ScraperError`` so callers do
+            # NOT swallow it as a soft-fail; the scrape crashes loudly
+            # rather than silently producing a wholesale undercount.
             raise ScraperError(
                 f"Bundesagentur returned {r.status_code} for {params}: "
                 f"{r.text[:120]}"
             )
-        raise ScraperError(
+        # Network errors exhausted the retry budget — same transient class
+        # as persistent WAF, so callers can soft-fail just this fetch.
+        raise _PageFetchExhaustedError(
             f"Bundesagentur exhausted retries for {params}: {last_exc}"
         )
 
