@@ -172,13 +172,14 @@ class R2Client:
         ``companies`` block; the publisher patches the ``by_ats`` jobs
         block; both must coexist in one manifest.json).
         """
+        from botocore.exceptions import ClientError
+
         try:
             response = self._client.get_object(Bucket=self.bucket, Key=key)
-        except Exception as exc:
-            code = getattr(exc, "response", {}).get("Error", {}).get("Code", "")
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "")
             if code in ("NoSuchKey", "404"):
                 return None
-            # Any other failure is a real problem — surface it.
             raise StorageError(f"R2 get failed for {key}: {exc}") from exc
         return response["Body"].read()
 
