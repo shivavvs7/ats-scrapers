@@ -61,6 +61,10 @@ class FakeR2:
             if key.startswith(prefix):
                 yield {"Key": key, "Size": len(self.uploads[key]["data"])}
 
+    def get_bytes(self, key: str) -> bytes | None:
+        entry = self.uploads.get(key)
+        return entry["data"] if entry else None
+
     def delete_many(self, keys: list[str]) -> int:
         for k in keys:
             self.uploads.pop(k, None)

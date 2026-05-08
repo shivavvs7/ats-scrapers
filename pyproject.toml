@@ -53,6 +53,10 @@ scrapers = [
     "aiohttp>=3.9",
     "beautifulsoup4>=4.12",
     "html2text>=2024.0",
+    # TLS+h2 impersonation client used as the cheap fallback when an ATS
+    # load balancer 406-blocks plain httpx (Avature, JazzHR, Eightfold).
+    # 1.6.x ships fingerprint refreshes that fix recent breakages.
+    "httpcloak>=1.6",
 ]
 parquet = [
     "pyarrow>=15.0",

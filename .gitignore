@@ -31,7 +31,8 @@ data/*.csv
 
 # Operator-side artefacts (kept locally, not part of the library)
 legacy/
-scripts/
+# Top-level scripts/ stays private; .github/scripts/ ships with the repo.
+/scripts/
 viewer/
 _legacy_discovery/
 bloomberg/

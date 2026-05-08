@@ -48,8 +48,11 @@ class MetaScraper(BaseScraper):
         if not bb.is_enabled():
             bb.warn_disabled("Meta")
             return []
-        bb.require_playwright()
+        # Order matters: creds is a cheap env-var check, playwright is a
+        # module import. Surface the more likely misconfig (missing
+        # creds) first.
         api_key, project_id = bb.require_creds()
+        bb.require_playwright()
         return asyncio.run(self._fetch_via_browserbase(api_key, project_id))
 
     async def _fetch_via_browserbase(
