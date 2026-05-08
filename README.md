@@ -145,8 +145,12 @@ scraper = get_scraper("ashby", "openai")
 
 **Hybrid jobboards**: `WelcomeToTheJungle`.
 
-A few scrapers (`Tesla`, `Meta`) need a real browser session and ship as
-placeholders pending the optional browser backend in 0.2.
+**Browser-required** (run via [Browserbase](https://browserbase.com)
+remote sessions): `Meta`, `Tesla`. Set `JOBHIVE_USE_BROWSERBASE=1`
+together with `BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID` to
+enable; without those env vars the scrapers log a warning and skip.
+Tesla also needs a Browserbase project that bypasses Akamai (default
+sessions are currently 403'd).
 
 ## CLI
 
