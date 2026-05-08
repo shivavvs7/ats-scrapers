@@ -32,6 +32,11 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # Lock the publish to main only — workflow_dispatch from a feature
+    # branch should never overwrite the production R2 mirror. The push
+    # trigger already filters on `branches: [main]`, so this guard is
+    # belt-and-braces for the manual dispatch path.
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
 
