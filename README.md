@@ -7,9 +7,9 @@
 > **The open dataset and toolkit for global job market data.**
 > 3.3M+ live jobs from 400 000+ companies, scraped directly from the ATS platforms where companies actually post. No LinkedIn, no reposts, no recruiters.
 
-[![PyPI](https://img.shields.io/pypi/v/jobhive.svg)](https://pypi.org/project/jobhive/)
-[![Python](https://img.shields.io/pypi/pyversions/jobhive.svg)](https://pypi.org/project/jobhive/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/jobhive-py.svg?color=brightgreen)](https://pypi.org/project/jobhive-py/)
+[![Python](https://img.shields.io/pypi/pyversions/jobhive-py.svg?color=brightgreen)](https://pypi.org/project/jobhive-py/)
+[![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE)
 
 ```python
 from jobhive import search
