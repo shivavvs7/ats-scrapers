@@ -1,0 +1,98 @@
+name: publish ats-companies
+
+# Mirror `ats-companies/` to Cloudflare R2 under
+# `jobhive/v1/ats-companies/{ats}.csv` on each push to main.
+# Downstream consumers (viewer webapp, etc.) read from R2.
+#
+# All values from secrets are surfaced via `env:` (never inlined in
+# `run:`) per the GH Actions injection-safety guide.
+#
+# Required GitHub secrets:
+#   R2_ENDPOINT_URL       https://<account-id>.r2.cloudflarestorage.com
+#   R2_ACCESS_KEY_ID      R2 API token's access key id
+#   R2_SECRET_ACCESS_KEY  matching secret
+#   R2_BUCKET             bucket name (e.g. `storage.stapply.ai`)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ats-companies/**"
+      - ".github/workflows/publish-ats-companies.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: publish-ats-companies
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sanity-check the folder
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          csvs=(ats-companies/*.csv)
+          if (( ${#csvs[@]} == 0 )); then
+            echo "No CSV files found in ats-companies/ — nothing to publish."
+            exit 1
+          fi
+          printf 'Found %d CSVs:\n' "${#csvs[@]}"
+          ls -lh ats-companies/*.csv
+
+      - name: Upload CSVs to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_EC2_METADATA_DISABLED: "true"
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+        run: |
+          set -euo pipefail
+          aws --version
+          aws s3 sync ats-companies/ "s3://${R2_BUCKET}/jobhive/v1/ats-companies/" \
+            --endpoint-url "${R2_ENDPOINT_URL}" \
+            --content-type "text/csv" \
+            --exclude "*" \
+            --include "*.csv" \
+            --delete
+
+      - name: Upload README.md to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_EC2_METADATA_DISABLED: "true"
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+        run: |
+          set -euo pipefail
+          if [ -f ats-companies/README.md ]; then
+            aws s3 cp ats-companies/README.md \
+              "s3://${R2_BUCKET}/jobhive/v1/ats-companies/README.md" \
+              --endpoint-url "${R2_ENDPOINT_URL}" \
+              --content-type "text/markdown; charset=utf-8"
+          fi
+
+      - name: Summary
+        env:
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Published"
+            echo ""
+            echo "Synced \`ats-companies/\` → \`s3://${R2_BUCKET}/jobhive/v1/ats-companies/\`"
+            echo ""
+            echo "| File | Size (bytes) |"
+            echo "|---|---:|"
+            for f in ats-companies/*.csv; do
+              name=$(basename "$f")
+              size=$(wc -c < "$f")
+              printf '| %s | %s |\n' "$name" "$size"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
