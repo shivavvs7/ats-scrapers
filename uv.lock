@@ -470,6 +470,18 @@ wheels = [
 ]
 
 [[package]]
+name = "httpcloak"
+version = "1.6.5"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4e/2b/e4767c50c7b942583cedf55ae2359b58b3dc1d978228548265695993ae27/httpcloak-1.6.5-py3-none-macosx_10_9_x86_64.whl", hash = "sha256:66a5113a50244b98776d50810fbb04cd2a6902c7b3b47dffc1d8b335deafb1f2", size = 4875359, upload-time = "2026-04-30T18:37:01.032Z" },
+    { url = "https://files.pythonhosted.org/packages/59/9c/680472248ac7624b7e9627ecb020e7d4e52c47babb4d8e5df1be2580ab41/httpcloak-1.6.5-py3-none-macosx_11_0_arm64.whl", hash = "sha256:91ed8a66868c8622a1a6ae0071c8362ce81fd03246c0b3ae2d1a251eb4f99653", size = 4470701, upload-time = "2026-04-30T18:37:03.039Z" },
+    { url = "https://files.pythonhosted.org/packages/34/b8/4fc8c936e4633911ff3c02b5c8dc13f2307e65f19c4ace2962886e04f3c2/httpcloak-1.6.5-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:a7fd9fb74e69c5fd8e13050f847bd3f4d2daa5c8d1c4c502aa11ba2adee96a54", size = 4650849, upload-time = "2026-04-30T18:37:04.754Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/d0/9929666a5f74bd552309170665f4209a08904e83e1ca5ea028d42243ff4b/httpcloak-1.6.5-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:6f465b6508467b5a5e6c8855c85888e5d71cfa2446ca2e793a31c2199385a45f", size = 5146192, upload-time = "2026-04-30T18:37:06.319Z" },
+    { url = "https://files.pythonhosted.org/packages/a2/16/7c36b729faef2cce4c0db5067c91c51abbcf7003dc1868b3559c246fb76e/httpcloak-1.6.5-py3-none-win_amd64.whl", hash = "sha256:fb7dbd8200f876113363873553c7c4c5fb02d506ea5eb78977d0b077f6c104bb", size = 4939406, upload-time = "2026-04-30T18:37:07.738Z" },
+]
+
+[[package]]
 name = "httpcore"
 version = "1.0.9"
 source = { registry = "https://pypi.org/simple" }
@@ -525,7 +537,7 @@ wheels = [
 ]
 
 [[package]]
-name = "jobhive"
+name = "jobhive-py"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
@@ -541,6 +553,7 @@ all = [
     { name = "boto3" },
     { name = "firecrawl-py" },
     { name = "html2text" },
+    { name = "httpcloak" },
     { name = "pyarrow" },
 ]
 dev = [
@@ -566,6 +579,7 @@ scrapers = [
     { name = "aiohttp" },
     { name = "beautifulsoup4" },
     { name = "html2text" },
+    { name = "httpcloak" },
 ]
 
 [package.metadata]
@@ -575,8 +589,9 @@ requires-dist = [
     { name = "boto3", marker = "extra == 'publish'", specifier = ">=1.34" },
     { name = "firecrawl-py", marker = "extra == 'discovery'", specifier = ">=1.0" },
     { name = "html2text", marker = "extra == 'scrapers'", specifier = ">=2024.0" },
+    { name = "httpcloak", marker = "extra == 'scrapers'", specifier = ">=1.6" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "jobhive", extras = ["scrapers", "parquet", "publish", "discovery"], marker = "extra == 'all'" },
+    { name = "jobhive-py", extras = ["scrapers", "parquet", "publish", "discovery"], marker = "extra == 'all'" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "pandas", specifier = ">=2.0" },
     { name = "pandas-stubs", marker = "extra == 'dev'" },
