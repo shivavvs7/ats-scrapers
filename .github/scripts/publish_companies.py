@@ -22,6 +22,17 @@ Notes:
   downloads without trusting the bucket's ETag.
 - Parquet is generated with ``pandas.to_parquet`` (snappy by default).
   Schema: ``ats,name,url`` — same simple shape as the CSVs.
+
+Known limitation — manifest read-modify-write race:
+  This script and ``DatasetPublisher`` both read+modify+write
+  ``manifest.json``. The workflow's ``concurrency`` group prevents two
+  CI runs from overlapping, but a manual publisher run that fires while
+  CI is in flight would each read the same manifest version and the
+  later writer would clobber the earlier writer's fields. Practical
+  risk is low (manual publisher runs are rare and operator-driven), but
+  if it ever bites, swap the final ``put_object`` for a conditional
+  ``put_object(IfMatch=etag)`` retry loop using the etag from the
+  ``get_object`` response.
 """
 
 from __future__ import annotations
@@ -163,8 +174,25 @@ def delete_legacy(client, bucket: str) -> None:
 
 
 def public_url(bucket: str, key: str) -> str:
-    """Build the canonical public URL on the data-plane endpoint."""
-    base = os.environ.get("R2_PUBLIC_BASE_URL", f"https://{bucket}").rstrip("/")
+    """Build the canonical public URL written into the manifest entries.
+
+    GitHub Actions injects unset secrets as the empty string (not as a
+    missing env var), so `os.environ.get("R2_PUBLIC_BASE_URL", default)`
+    can't catch the unset case via its default — we have to test for
+    truthiness explicitly.
+
+    There's no good autoderived fallback for R2: the bucket isn't
+    publicly addressable as `https://<bucket>` (R2 requires a custom
+    domain or `<id>.r2.dev` mapping), and guessing wrong yields broken
+    links in `manifest.json`. So when ``R2_PUBLIC_BASE_URL`` is unset,
+    we write the relative R2 object key — matching the behaviour of
+    `DatasetPublisher._public_or_key`. Consumers can resolve relatives
+    against whatever base they prefer.
+    """
+    del bucket  # only the key is used in the relative-fallback path
+    base = (os.environ.get("R2_PUBLIC_BASE_URL") or "").rstrip("/")
+    if not base:
+        return key
     return f"{base}/{key}"
 
 
