@@ -18,22 +18,27 @@ Three layers of progressive disclosure:
 from jobhive._version import __version__
 from jobhive.client import Client, search
 from jobhive.exceptions import (
+    CompanyNotFoundError,
     JobHiveError,
     ManifestError,
     ScraperError,
     StorageError,
 )
 from jobhive.manifest import Manifest
-from jobhive.models import Company, Job, Salary
+from jobhive.models import ATSType, Company, EmploymentType, Job, Salary, SalaryPeriod
 
 __all__ = [
+    "ATSType",
     "Client",
     "Company",
+    "CompanyNotFoundError",
+    "EmploymentType",
     "Job",
     "JobHiveError",
     "Manifest",
     "ManifestError",
     "Salary",
+    "SalaryPeriod",
     "ScraperError",
     "StorageError",
     "__version__",
