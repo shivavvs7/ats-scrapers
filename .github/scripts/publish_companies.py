@@ -240,6 +240,13 @@ def main() -> None:
     ).replace("+00:00", "Z")
     if "version" not in manifest:
         manifest["version"] = "1.0"
+    # Drop the legacy companies-side field. It pointed at
+    # `<prefix>/companies/by-ats/<ats>.csv` URLs that we deleted in
+    # `delete_legacy(...)` below, and its name is one underscore away
+    # from `by_ats_companies` so leaving it behind invites confusion.
+    # Jobs-side legacy fields (`by_date`) are publisher-owned — that
+    # cleanup happens in DatasetPublisher.
+    manifest.pop("companies_by_ats", None)
     manifest_bytes = json.dumps(manifest, indent=2, sort_keys=True).encode("utf-8")
     upload(
         client,
