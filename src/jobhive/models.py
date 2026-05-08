@@ -58,6 +58,18 @@ class ATSType(StrEnum):
     EURES = "eures"
     # Hybrid jobboards (companies post directly, not aggregated)
     WELCOMETOTHEJUNGLE = "welcometothejungle"
+    GETONBRD = "getonbrd"
+    WANTED = "wanted"
+    REMOTEOK = "remoteok"
+    WEWORKREMOTELY = "weworkremotely"
+    PROGRAMATHOR = "programathor"
+    BUILTIN = "builtin"
+    JOBSCH = "jobsch"
+    MANFRED = "manfred"
+    THEHUB = "thehub"
+    THEMUSE = "themuse"
+    YCOMBINATOR = "ycombinator"
+    WELLFOUND = "wellfound"
     # Additional multi-tenant ATSes (post-0.1)
     BAMBOOHR = "bamboohr"
     BREEZY = "breezy"
