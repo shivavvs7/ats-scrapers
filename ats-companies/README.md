@@ -46,6 +46,11 @@ Acme Corp,https://acme.greenhouse.io
 | workable | `https://apply.workable.com/<slug>` |
 | workday | `https://<host>.myworkdayjobs.com/<board>` |
 
+> **Phenom is the one exception to the 2-column schema.**
+> `phenom.csv` carries `url,name,company_code,locale,country` because
+> Phenom search endpoints are scoped per `(locale, country)` and we
+> want to keep that wiring close to the tenant list.
+
 When in doubt, look at the existing rows in the file you're editing —
 the scraper accepts whatever shape is already there.
 
