@@ -238,8 +238,10 @@ def main() -> None:
     manifest["updated_at"] = datetime.now(tz=UTC).isoformat(
         timespec="seconds"
     ).replace("+00:00", "Z")
-    if "version" not in manifest:
-        manifest["version"] = "1.0"
+    # The companies-side moved to the new per-ATS layout in this PR
+    # series; bump the manifest version to advertise it. The publisher
+    # also sets "2.0" once it runs against the jobs side.
+    manifest["version"] = "2.0"
     # Drop the legacy companies-side field. It pointed at
     # `<prefix>/companies/by-ats/<ats>.csv` URLs that we deleted in
     # `delete_legacy(...)` below, and its name is one underscore away
