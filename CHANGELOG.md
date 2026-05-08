@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Initial public release.
 
+Distributed on PyPI as **`jobhive-py`** (the `jobhive` name was too
+similar to an existing project for PyPI's name policy). The import
+name is still `jobhive` — `pip install jobhive-py` then
+`from jobhive import search`.
+
 ### Dataset
 
 - 3.3M+ live jobs from 400 000+ companies, refreshed every 24 hours.
@@ -57,12 +62,12 @@ backend ships in 0.2.
 
 ### Optional extras
 
-- `jobhive[parquet]` — faster manifest downloads via Apache Parquet.
-- `jobhive[scrapers]` — enable BYO-pipeline scraping
+- `jobhive-py[parquet]` — faster manifest downloads via Apache Parquet.
+- `jobhive-py[scrapers]` — enable BYO-pipeline scraping
   (`aiohttp`, `beautifulsoup4`, `html2text`).
-- `jobhive[publish]` — Cloudflare R2 + Parquet publishing toolchain.
-- `jobhive[discovery]` — Firecrawl-based tenant discovery.
-- `jobhive[all]` — everything above.
+- `jobhive-py[publish]` — Cloudflare R2 + Parquet publishing toolchain.
+- `jobhive-py[discovery]` — Firecrawl-based tenant discovery.
+- `jobhive-py[all]` — everything above.
 
 ### Notes
 

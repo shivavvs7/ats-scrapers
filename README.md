@@ -65,15 +65,17 @@ with `jobhive list-ats`.
 ## Install
 
 ```bash
-pip install jobhive
+pip install jobhive-py
 ```
+
+Distributed as `jobhive-py` on PyPI; the import name is still `jobhive`.
 
 Optional extras:
 
 ```bash
-pip install "jobhive[parquet]"     # faster downloads via Apache Parquet
-pip install "jobhive[scrapers]"    # build your own pipeline
-pip install "jobhive[all]"
+pip install "jobhive-py[parquet]"     # faster downloads via Apache Parquet
+pip install "jobhive-py[scrapers]"    # build your own pipeline
+pip install "jobhive-py[all]"
 ```
 
 ## Two ways to use it
