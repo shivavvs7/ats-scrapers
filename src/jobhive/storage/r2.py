@@ -164,6 +164,24 @@ class R2Client:
         except Exception:
             return None
 
+    def get_bytes(self, key: str) -> bytes | None:
+        """Return the object body, or ``None`` if the key doesn't exist.
+
+        Used by the publisher to read-modify-write the manifest without
+        clobbering fields owned by another writer (the CI uploads the
+        ``companies`` block; the publisher patches the ``by_ats`` jobs
+        block; both must coexist in one manifest.json).
+        """
+        try:
+            response = self._client.get_object(Bucket=self.bucket, Key=key)
+        except Exception as exc:
+            code = getattr(exc, "response", {}).get("Error", {}).get("Code", "")
+            if code in ("NoSuchKey", "404"):
+                return None
+            # Any other failure is a real problem — surface it.
+            raise StorageError(f"R2 get failed for {key}: {exc}") from exc
+        return response["Body"].read()
+
     def list(self, prefix: str = "") -> Iterator[dict[str, Any]]:
         paginator = self._client.get_paginator("list_objects_v2")
         for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
