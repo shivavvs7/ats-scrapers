@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/stapply-ai/ats-scrapers/main/assets/banner.jpeg" alt="jobhive" />
+</p>
+
 # jobhive
 
 > **The open dataset and toolkit for global job market data.**
