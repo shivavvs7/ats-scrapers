@@ -1,7 +1,7 @@
 # jobhive
 
 > **The open dataset and toolkit for global job market data.**
-> 1.8M+ jobs from 117 000+ companies, scraped directly from ATS sources — no LinkedIn, no reposts, no recruiters.
+> 3.3M+ live jobs from 400 000+ companies, scraped directly from the ATS platforms where companies actually post. No LinkedIn, no reposts, no recruiters.
 
 [![PyPI](https://img.shields.io/pypi/v/jobhive.svg)](https://pypi.org/project/jobhive/)
 [![Python](https://img.shields.io/pypi/pyversions/jobhive.svg)](https://pypi.org/project/jobhive/)
@@ -13,75 +13,50 @@ from jobhive import search
 df = search(query="ml engineer", location="Paris", remote=True)
 ```
 
-That's it. No API key, no auth, no rate limits. The dataset lives on
-Cloudflare R2 and updates every 24 hours.
+No API key, no auth, no rate limits. The dataset refreshes every 24 hours.
 
 ---
 
 ## Why jobhive
 
-LinkedIn job scrapers break every quarter. Indeed mirrors are full of
-duplicates and ghost listings. **jobhive goes one layer down**: directly to
-the ATS platforms (Greenhouse, Lever, Ashby, Workday, etc.) where companies
-actually post jobs first.
+Most job aggregators scrape LinkedIn and Indeed — both full of duplicates,
+ghost listings, and reposts. **jobhive goes one layer down**: directly to
+the ATS platforms (Greenhouse, Lever, Ashby, Workday, BambooHR…) where
+companies actually post.
 
-- **Single source of truth** — every posting comes from the company's own
+- **Single source of truth** — every row comes from the company's own
   ATS, so titles, locations, and salaries are accurate.
 - **No duplicates** — one ATS posting = one row.
-- **Salary data when it exists** — Ashby, Greenhouse Pay Transparency, and
-  others ship structured comp ranges; we expose them as typed fields.
-- **MIT licensed, fully open** — fork the dataset, fork the scrapers, run
-  your own pipeline.
-- **Reverse-engineered, not brittle** — every scraper was built by capturing
-  the ATS's own network traffic with
-  [reverse-api-engineer](https://github.com/kalil0321/reverse-api-engineer),
-  so we hit the same JSON endpoints the official UI uses. No HTML parsing,
-  no Playwright, no breakage on every redesign.
+- **Structured salary** when the ATS exposes it (Ashby, Greenhouse Pay
+  Transparency, Lever salaryRange, etc.).
+- **MIT licensed, fully open** — fork the dataset, fork the scrapers.
 
-## Coverage (May 2026)
+## Coverage
 
-Counts below come from the live manifest at
-`https://storage.stapply.ai/jobhive/v1/manifest.json` — verify any time
-with `jobhive list-ats`.
+| Metric | Value |
+|---|---:|
+| Live jobs | **3 376 000+** |
+| Companies | **406 000+** |
+| ATS platforms | **31** |
+
+Top 10 by job count:
 
 | ATS | Jobs |
 |---|---:|
-| Workday | 602 725 |
-| Bundesagentur (DE public-sector) | 301 314 |
-| SmartRecruiters | 211 012 |
-| Oracle HCM | 163 104 |
-| Greenhouse | 109 335 |
-| Workable | 99 774 |
-| iCIMS | 83 137 |
-| Lever | 60 427 |
-| JazzHR | 44 946 |
-| Ashby | 34 030 |
-| Arbetsformedlingen (SE public-sector) | 31 036 |
-| Eightfold | 29 839 |
-| Breezy | 24 122 |
-| Rippling | 13 141 |
-| Teamtailor | 11 450 |
-| Pinpoint | 11 261 |
-| Cornerstone | 9 722 |
-| BambooHR | 9 645 |
-| Personio | 8 062 |
-| Recruiterbox | 4 200 |
-| Recruitee | 2 081 |
-| Avature | 1 934 |
-| Phenom | 1 302 |
-| Join.com | 596 |
-| Taleo | 132 |
-| Amazon | 1 |
-| **Total** | **1 827 171** |
+| Bundesagentur (DE public-sector) | 931 049 |
+| Workday | 653 041 |
+| EURES (EU/EEA public-sector) | 626 783 |
+| SmartRecruiters | 213 372 |
+| SuccessFactors | 180 499 |
+| Greenhouse | 110 071 |
+| Oracle HCM | 107 464 |
+| iCIMS | 92 211 |
+| Lever | 60 342 |
+| Phenom | 56 483 |
 
-That spans **117 342 distinct companies** across **26 ATS platforms**
-(`manifest.stats.total_companies`).
-
-Plus dedicated single-tenant scrapers for Apple (~6.6k), Nvidia (~4.3k),
-Google (~3.7k), TikTok (~3.5k), Microsoft (~2.7k), Uber (~1.7k), and Meta
-(~1k) — these are not in the published parquet today (the live Amazon
-slice is also a stub at 1 row); run them yourself for the latest
-listings.
+Counts come from the live manifest at
+`https://storage.stapply.ai/jobhive/v1/manifest.json` — verify any time
+with `jobhive list-ats`.
 
 ## Install
 
@@ -94,13 +69,12 @@ Optional extras:
 ```bash
 pip install "jobhive[parquet]"     # faster downloads via Apache Parquet
 pip install "jobhive[scrapers]"    # build your own pipeline
-pip install "jobhive[publish]"     # push your own dataset to Cloudflare R2
-pip install "jobhive[all]"         # everything
+pip install "jobhive[all]"
 ```
 
-## Three layers of API
+## Two ways to use it
 
-### 1. Dataset client — query the public snapshot
+### 1. Query the public dataset
 
 ```python
 from jobhive import search
@@ -108,14 +82,28 @@ from jobhive import search
 # Free-text title + location + remote filter
 df = search(query="rust", location="Berlin", remote=True, salary_min=80_000)
 
-# Restrict to a single ATS slice (smaller download)
+# Restrict to one ATS slice (smaller download)
 df = search(query="data engineer", ats="ashby")
 
 # Pandas all the way down
 df.groupby("company").size().sort_values(ascending=False).head(20)
 ```
 
-### 2. Per-ATS scrapers — bring your own companies
+Every row carries:
+
+```
+url, title, company, ats_type, ats_id,
+location, is_remote, lat, lon,
+salary_min, salary_max, salary_currency, salary_period, salary_summary,
+employment_type, commitment, experience, department, team,
+description, posted_at, fetched_at, requisition_id, apply_url, raw
+```
+
+Optional fields are `None` when the source ATS doesn't expose them.
+``raw`` keeps any provider-specific fields the canonical schema doesn't
+represent — Greenhouse `metadata`, Workday `bulletFields`, etc.
+
+### 2. Scrape your own companies
 
 ```python
 from jobhive.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper
@@ -129,92 +117,30 @@ Or pick by name:
 
 ```python
 from jobhive.scrapers import get_scraper
+
 scraper = get_scraper("ashby", "openai")
 ```
 
-#### Scraper status
+## Scrapers
 
-**Multi-tenant ATS — stable**, live-validated against production sites:
+**Multi-tenant ATS** (pass the company's slug on that ATS):
 
-| ATS | Class | Slug shape |
-|---|---|---|
-| Greenhouse | `GreenhouseScraper` | board slug (`anthropic`, `stripe`) |
-| Lever | `LeverScraper` | account slug (`palantir`, `spotify`) |
-| Ashby | `AshbyScraper` | board slug (`openai`, `ramp`) — surfaces structured salary when Pay Transparency is on |
-| SmartRecruiters | `SmartRecruitersScraper` | company slug (`Filmless`) |
-| Workable | `WorkableScraper` | account slug (`1000heads`) |
-| Rippling | `RipplingScraper` | board slug (`rippling`, `11fs-group-ltd`) |
-| Personio | `PersonioScraper` | tenant subdomain (`1komma5grad`) or full URL |
-| Gem | `GemScraper` | board slug (`accel`, `11x-ai`) |
-| Join.com | `JoinComScraper` | company slug (`6pmseason`) |
-| iCIMS | `iCIMSScraper` | tenant subdomain |
-| JazzHR | `JazzHRScraper` | account slug |
-| Breezy | `BreezyScraper` | company slug |
-| Teamtailor | `TeamtailorScraper` | company slug |
-| Pinpoint | `PinpointScraper` | tenant subdomain |
-| BambooHR | `BambooHRScraper` | tenant subdomain |
-| Cornerstone | `CornerstoneScraper` | tenant subdomain |
-| Recruitee | `RecruiteeScraper` | company slug |
-| Recruiterbox | `RecruiterboxScraper` | account slug |
-| Eightfold | `EightfoldScraper` | tenant slug (powers Microsoft, Nvidia, Cisco, AT&T, …) |
-| Bundesagentur für Arbeit | `BundesagenturScraper` | (any — German federal employment agency) |
-| Arbetsförmedlingen | `ArbetsformedlingenScraper` | (any — Swedish public employment service) |
+`Greenhouse`, `Lever`, `Ashby`, `SmartRecruiters`, `Workable`,
+`Rippling`, `Personio`, `Gem`, `JoinCom`, `iCIMS`, `JazzHR`, `Breezy`,
+`Teamtailor`, `Pinpoint`, `BambooHR`, `Cornerstone`, `Recruitee`,
+`Recruiterbox`, `Eightfold`, `Avature`, `Phenom`, `Workday`, `Oracle`,
+`SuccessFactors`, `Taleo`, `Mercor`.
 
-**Big-tech custom — stable**, live-validated, single-tenant per scraper:
+**Custom big-tech APIs** (single-tenant, slug ignored): `Amazon`,
+`Apple`, `Google`, `TikTok`, `Uber`.
 
-| Company | Class | Slug |
-|---|---|---|
-| Amazon | `AmazonScraper` | (any — global API, ~19k jobs) |
-| Apple | `AppleScraper` | (any — global API, CSRF flow) |
-| TikTok | `TikTokScraper` | (any — lifeattiktok.com) |
-| Uber | `UberScraper` | (any — uber.com/api) |
+**National public-sector aggregators**: `Bundesagentur` (DE),
+`Arbetsformedlingen` (SE), `Eures` (EU/EEA-wide).
 
-Microsoft, Nvidia, Cisco, and other Eightfold tenants are scraped via
-`EightfoldScraper(slug)` — there is no dedicated `MicrosoftScraper` /
-`NvidiaScraper` class.
+**Hybrid jobboards**: `WelcomeToTheJungle`.
 
-**Hybrid jobboards — stable**, companies post directly (not aggregated):
-
-| Provider | Class | Slug | Notes |
-|---|---|---|---|
-| Welcome to the Jungle | `WTTJScraper` | org slug or `"*"` | Algolia-backed; ~81k active jobs globally with rich structured data (salary, contract type, lat/lon, description, sectors). Pass `"*"` to walk the entire platform (~56s). |
-
-⚠️  **Experimental** — these ship a working URL pattern but require
-per-tenant tweaks for reliable extraction across all customers. They
-work for some tenants out of the box; for others, fall back to the
-upstream [stapply-ai/data](https://github.com/stapply-ai/data) legacy
-scrapers until 0.2.0:
-
-| Provider | Class | Why it's experimental |
-|---|---|---|
-| Workday | `WorkdayScraper` | Site path varies; some tenants need extra `appliedFacets` |
-| Oracle HCM | `OracleScraper` | Field names (`Title` vs `RequisitionTitle`) differ across versions |
-| Phenom | `PhenomScraper` | Each tenant configures its own API prefix |
-| Avature | `AvatureScraper` | Server-rendered HTML, markup varies per template |
-| Mercor | `MercorScraper` | Listing migrated to client-side rendering |
-| Google | `GoogleScraper` | HTML-only, markup changes periodically |
-
-**Browser-required** — these endpoints are gated by Akamai / require
-session tokens that only a real browser can issue. The scrapers raise a
-clear `ScraperError` directing users to the legacy Playwright-based
-implementations until jobhive 0.2 ships an optional browser backend:
-
-| Company | Class | Why a browser is needed |
-|---|---|---|
-| Tesla | `TeslaScraper` | Akamai bot detection blocks direct httpx calls |
-| Meta | `MetaScraper` | Site is CSR, GraphQL needs browser-issued tokens |
-
-### 3. Full pipeline — discover, scrape, enrich, publish
-
-```python
-from jobhive import Pipeline   # coming in 0.2
-
-Pipeline() \
-    .discover(ats="lever", queries=20) \
-    .scrape() \
-    .enrich() \
-    .to_csv("jobs.csv")
-```
+A few scrapers (`Tesla`, `Meta`) need a real browser session and ship as
+placeholders pending the optional browser backend in 0.2.
 
 ## CLI
 
@@ -222,170 +148,46 @@ Pipeline() \
 jobhive search "platform engineer" --location Paris --limit 20
 jobhive scrape ashby openai
 jobhive list-ats
-jobhive publish ./data --pattern '{ats}/jobs.csv'
 ```
 
-## How the data flows
+## Contributing
 
-```
-┌─────────────────┐    ┌──────────────────┐    ┌───────────────┐
-│   Discovery     │───▶│   ATS Scrapers   │───▶│   Enrichment   │
-│ SearXNG/Serp/   │    │  Greenhouse,     │    │  Salary parse  │
-│ Firecrawl       │    │  Lever, Ashby... │    │  Geocoding     │
-└─────────────────┘    └──────────────────┘    └───────┬───────┘
-                                                       │
-                                                       ▼
-                                          ┌────────────────────────┐
-                                          │  Cloudflare R2         │
-                                          │  storage.stapply.ai/   │
-                                          │  jobhive/v1/           │
-                                          └────────────────────────┘
-                                                       │
-                                                       ▼
-                                          ┌────────────────────────┐
-                                          │  jobhive Python client │
-                                          └────────────────────────┘
-```
+**The goal is the largest open-source live job dataset on the
+internet.** That's a forever project, and there's a clear path to make
+it bigger:
 
-## Add a new ATS scraper
-
-The scraper API is small on purpose: subclass `BaseScraper`, set `ats`, and
-implement `fetch()`.
-
-```python
-from jobhive.scrapers.base import BaseScraper, ScraperRegistry
-from jobhive.models import ATSType, Job
-
-@ScraperRegistry.register(ATSType.CUSTOM)
-class MyAtsScraper(BaseScraper):
-    ats = ATSType.CUSTOM
-
-    def fetch(self) -> list[Job]:
-        ...  # return [Job(...), Job(...)]
-```
-
-**The fast way** — point
-[reverse-api-engineer](https://github.com/kalil0321/reverse-api-engineer) at
-the ATS's careers page. It records the browser's network traffic to a HAR
-file and generates a typed Python client. Drop the generated client into
-`jobhive/scrapers/`, wire it into `BaseScraper.fetch()`, and you're done.
-Every scraper in this repo was built that way.
-
-## Dataset layout on R2
-
-Everything lives under `https://storage.stapply.ai/jobhive/v1/`:
-
-```
-jobhive/v1/
-├── manifest.json                    # always start here
-├── jobs/
-│   ├── all.parquet                  # full snapshot — parquet ONLY (~40 MB)
-│   ├── by-ats/
-│   │   ├── greenhouse.parquet       # one file per ATS
-│   │   ├── greenhouse.csv           # CSV alongside (smaller files)
-│   │   └── ...
-│   └── by-date/
-│       └── 2026-05-04.parquet       # daily snapshot, immutable
-└── companies/
-    ├── all.csv                      # global slug → ATS mapping
-    └── by-ats/
-        ├── greenhouse.csv           # companies on Greenhouse
-        ├── lever.csv                # companies on Lever
-        └── ...
-```
-
-**Schema** — every job row carries:
-
-```
-url, title, company, ats_type, ats_id,
-location, lat, lon, is_remote,
-salary_currency, salary_period, salary_summary, salary_min, salary_max,
-experience, employment_type, seniority, department, team,
-posted_at, fetched_at, description
-```
-
-Optional fields are `None` when the source ATS doesn't expose them. `is_remote`
-and `seniority` are derived (location keywords; title regex). Manifest
-fields are stable across the v1 series; new fields may be added but existing
-ones never change meaning.
-
-### Visualizing parquet locally
+- **Add a new ATS scraper** — every ATS we don't cover yet is a few
+  thousand companies missing from the dataset. The scraper API is
+  intentionally tiny: subclass `BaseScraper`, set `ats`, implement
+  `fetch()`. See any file under `src/jobhive/scrapers/` for a 50-line
+  reference, and the `Job` model in `src/jobhive/models.py` for the
+  schema you populate.
+- **Improve coverage on an existing ATS** — many scrapers extract
+  description / salary / employment-type only when the ATS surfaces
+  them. If you find a tenant where a field is structurally available
+  but we're missing it, a one-line PR is welcome.
+- **Discover new tenants** — we maintain a
+  `{ats}/{ats}_companies.csv` per ATS. New rows = new companies in
+  the dataset.
+- **Report broken scrapers** — open an issue with the slug and the
+  failure mode. ATS APIs drift; flagging a regression early keeps the
+  dataset accurate for everyone.
 
 ```bash
-# DuckDB CLI — fastest, supports SQL
-duckdb -c "SELECT title, company, salary_summary FROM 'jobs.parquet' LIMIT 10"
-
-# Pandas
-python -c "import pandas as pd; print(pd.read_parquet('jobs.parquet').head())"
-
-# Tad (Mac/Linux GUI)
-brew install --cask tad
-
-# VS Code: install "Parquet Viewer" extension and drag the file in
-```
-
-## Run your own publisher
-
-If you've cloned [stapply-ai/data](https://github.com/stapply-ai/data) and
-want to push the local snapshot to your own R2 bucket:
-
-```bash
-# Required
-export CLOUDFLARE_BUCKET_NAME=...
-export CLOUDFLARE_ACCESS_KEY_ID=...
-export CLOUDFLARE_SECRET_ACCESS_KEY=...
-
-# Either of these — endpoint wins if both are set
-export CLOUDFLARE_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
-# or
-export CLOUDFLARE_ACCOUNT_ID=<your-account-id>
-
-# Optional — public CDN base for nice URLs in the manifest
-export CLOUDFLARE_PUBLIC_BASE_URL=https://your-cdn.example.com
-
-jobhive publish ./data --pattern '{ats}/jobs.csv'
-```
-
-The publisher ships ~150 MB of CSV + Parquet to R2 in a few minutes and writes
-a fresh `manifest.json` last so half-finished runs never poison clients.
-
-## Project layout
-
-```
-ats-scrapers/
-├── src/jobhive/
-│   ├── client.py            # Layer 1: dataset client
-│   ├── manifest.py          # versioned R2 manifest
-│   ├── models.py            # Job / Company / Salary
-│   ├── scrapers/            # Layer 2: per-ATS scrapers
-│   ├── pipeline/            # Layer 3: end-to-end orchestration (stub)
-│   ├── discovery/           # find new companies on each ATS (stub)
-│   ├── enrichment/          # salary, geocoding, classification
-│   ├── storage/             # Cloudflare R2 + dataset publisher
-│   └── cli.py
-├── tests/
-└── examples/
-```
-
-## Tests
-
-```bash
-uv pip install -e ".[dev,publish,scrapers]"
-pytest          # 627 tests, offline (httpx/aiohttp mocked via pytest-httpx)
+git clone https://github.com/stapply-ai/ats-scrapers
+cd ats-scrapers
+uv pip install -e ".[dev,scrapers]"
+pytest
 ruff check .
 ```
+
+PRs welcome on `main`. CI is green for all 6 of {3.11, 3.12, 3.13} ×
+{ubuntu, macos}; please keep it that way.
 
 ## License
 
 MIT.
 
-## Related
+## Acknowledgments
 
-- **[reverse-api-engineer](https://github.com/kalil0321/reverse-api-engineer)** —
-  the tool we used to build every scraper here. Captures browser traffic
-  and generates a typed Python API client; that's what makes adding a new
-  ATS a 30-minute job.
-- **[stapply-ai/data](https://github.com/stapply-ai/data)** — the upstream
-  scrapers and discovery pipeline.
-- **[stapply.ai map](https://map.stapply.ai)** — interactive visualization
-  of the jobhive dataset.
+Built with [Reverse API Engineer](https://github.com/kalil0321/reverse-api-engineer).
