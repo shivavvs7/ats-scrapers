@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "jobhive"
 version = "0.1.0"
-description = "1M+ jobs from 16k companies, scraped directly from ATS sources. The open dataset and toolkit for job market data."
+description = "3.3M+ live jobs from 400 000+ companies, scraped directly from ATS sources. The open dataset and toolkit for job market data."
 readme = "README.md"
 license = { text = "MIT" }
 authors = [
@@ -78,10 +78,11 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/stapply-ai/data"
-Documentation = "https://github.com/stapply-ai/data/tree/main/jobhive#readme"
-Repository = "https://github.com/stapply-ai/data"
-Issues = "https://github.com/stapply-ai/data/issues"
+Homepage = "https://github.com/stapply-ai/ats-scrapers"
+Documentation = "https://github.com/stapply-ai/ats-scrapers#readme"
+Repository = "https://github.com/stapply-ai/ats-scrapers"
+Issues = "https://github.com/stapply-ai/ats-scrapers/issues"
+Changelog = "https://github.com/stapply-ai/ats-scrapers/blob/main/CHANGELOG.md"
 Dataset = "https://storage.stapply.ai/jobhive/v1/manifest.json"
 
 [project.scripts]
