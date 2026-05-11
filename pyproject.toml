@@ -86,10 +86,20 @@ discovery = [
 all = [
     "jobhive-py[scrapers,parquet,publish,discovery]",
 ]
-dev = [
+# Set to run the test suite cleanly. Pulls in every runtime extra
+# (``all``) so ``pytest`` can collect ``test_publisher.py`` (which
+# imports ``polars`` / ``boto3`` / ``rapidfuzz`` via the publisher
+# module). External CI / reviewers should install this extra rather
+# than ``publish`` alone — Kind AI flagged on PR #33 / #34 that the
+# minimal extras left the suite uncollectable.
+test = [
+    "jobhive-py[all]",
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pytest-httpx>=0.30",
+]
+dev = [
+    "jobhive-py[test]",
     "ruff>=0.5",
     "mypy>=1.10",
     "pandas-stubs",
