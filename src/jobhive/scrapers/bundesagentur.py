@@ -53,6 +53,7 @@ from jobhive.models import ATSType, Job
 from jobhive.scrapers.base import BaseScraper, ScraperRegistry
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator, Awaitable, Callable
     from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -118,21 +119,98 @@ class BundesagenturScraper(BaseScraper):
     ats = ATSType.BUNDESAGENTUR
 
     def fetch(self) -> list[Job]:
+        """Legacy in-memory fetch — accumulates the full corpus into a
+        list. At ~750 k jobs that's a few GB of Job objects in RAM,
+        sitting alongside other cron jobs. Prefer :meth:`fetch_stream`
+        from cron contexts that write straight to disk."""
         return asyncio.run(self._fetch_async())
 
-    async def _fetch_async(self) -> list[Job]:
+    async def fetch_stream(self) -> AsyncGenerator[Job, None]:
+        """Stream jobs as they're parsed.
+
+        Memory profile: ~200 MB regardless of corpus size — only the
+        ``seen`` ID set + a bounded in-flight queue stays resident.
+        Shares its fan-out + dedup logic with :meth:`_fetch_async` by
+        plugging a queue-pushing ``on_job`` callback into it. The
+        consumer iterator yields each job as it lands so callers
+        (e.g. :func:`scripts.run_pipeline.run`) can write straight
+        to a CSV writer without ever holding the full corpus in RAM.
+
+        Termination uses an ``asyncio.Event`` rather than a queue
+        sentinel: the consumer polls ``queue.get`` with a 500 ms
+        timeout and checks ``producer_done`` between polls. This
+        avoids the deadlock that a bounded-queue sentinel-put would
+        introduce if the consumer ever stops draining (cubic PR #69
+        P1) and keeps producer cleanup non-blocking.
+        """
+        queue: asyncio.Queue[Job] = asyncio.Queue(maxsize=2000)
+        producer_done = asyncio.Event()
+
+        async def on_job(job: Job) -> None:
+            await queue.put(job)
+
+        async def producer() -> None:
+            try:
+                await self._fetch_async(on_job=on_job)
+            finally:
+                producer_done.set()
+
+        task = asyncio.create_task(producer())
+        try:
+            while True:
+                if producer_done.is_set() and queue.empty():
+                    await task  # propagate any producer exception
+                    break
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=0.5)
+                except TimeoutError:
+                    continue
+                yield item
+        except BaseException:
+            task.cancel()
+            raise
+
+    async def _fetch_async(
+        self,
+        *,
+        on_job: Callable[[Job], Awaitable[None]] | None = None,
+    ) -> list[Job]:
+        """Drive the recursive query fan-out + dedup.
+
+        Two modes:
+
+        - ``on_job is None`` (default): accumulate every deduped job
+          into a list and return it. Used by :meth:`fetch` for small-
+          corpus / test paths.
+
+        - ``on_job`` set to an async callback: dispatch each deduped
+          job to the callback instead of accumulating. Used by
+          :meth:`fetch_stream` so the queue consumer can write jobs
+          to disk as they land; the in-memory footprint drops to just
+          the ``seen`` ID set (~30 MB at full corpus). Returns an
+          empty list in this mode.
+        """
         seen: set[str] = set()
         all_jobs: list[Job] = []
         lock = asyncio.Lock()
 
         async def absorb(items: list[dict[str, Any]]) -> None:
+            # Dedup under the lock, then dispatch to the sink outside
+            # the lock so a slow ``on_job`` callback can't serialise
+            # every absorbing task on the lock.
+            new_jobs: list[Job] = []
             async with lock:
                 for it in items:
                     job = self._parse(it)
                     if job is None or job.ats_id in seen:
                         continue
                     seen.add(job.ats_id)
-                    all_jobs.append(job)
+                    new_jobs.append(job)
+            if on_job is not None:
+                for job in new_jobs:
+                    await on_job(job)
+            else:
+                all_jobs.extend(new_jobs)
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             sem = asyncio.Semaphore(MAX_CONCURRENCY)
