@@ -76,6 +76,21 @@ class WantedScraper(BaseScraper):
     def fetch(self) -> list[Job]:
         return asyncio.run(self._fetch_async())
 
+    def get_description(self, job: Job) -> str | None:
+        if job.description:
+            return job.description
+        copy = job.model_copy()
+
+        async def run() -> str | None:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, follow_redirects=True,
+            ) as client:
+                sem = asyncio.Semaphore(1)
+                await self._enrich_description(client, sem, copy)
+            return copy.description
+
+        return asyncio.run(run())
+
     async def _fetch_async(self) -> list[Job]:
         seen: set[str] = set()
         jobs: list[Job] = []
@@ -117,7 +132,7 @@ class WantedScraper(BaseScraper):
                     )
 
             await asyncio.gather(*(per_country(cc) for cc in self.country_codes))
-            if jobs:
+            if self.include_descriptions and jobs:
                 await asyncio.gather(*(self._enrich_description(client, sem, j) for j in jobs))
         return jobs
 
@@ -137,7 +152,7 @@ class WantedScraper(BaseScraper):
         detail = ((payload.get("job") or {}).get("detail") or {})
         description = _compose_description(detail)
         if description and not job.description:
-            job.description = description[:10_000]
+            job.description = description[:25_000]
 
     # --- HTTP layer ---------------------------------------------------------
 
