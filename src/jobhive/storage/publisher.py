@@ -601,6 +601,7 @@ _COUNTRY_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # require the parens too. Case-insensitive: the pipeline lowercases
 # ``location`` during harvest.
 _NUTS_PREFIX_RE = re.compile(r"^\s*([a-z]{2})\s*\(", re.IGNORECASE)
+_TRAILING_ISO_RE = re.compile(r"(?:^|[,\s(/])([a-z]{2})(?:[\s).]*)$", re.IGNORECASE)
 
 # Word-boundary-anchored country needle patterns. Substring matching
 # false-positived on common European place names — e.g. ``"usa"``
@@ -619,6 +620,7 @@ _COUNTRY_PATTERNS_RE: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
     )
     for code, needles in _COUNTRY_PATTERNS
 )
+_COUNTRY_CODES = {country_code for country_code, _ in _COUNTRY_PATTERNS}
 
 
 def _country_iso_from_location(loc: object) -> str:
@@ -633,13 +635,19 @@ def _country_iso_from_location(loc: object) -> str:
     """
     if not isinstance(loc, str) or not loc.strip():
         return ""
-    lowered = loc.strip().lower()
+    stripped = loc.strip()
+    lowered = stripped.lower()
     for code, pat in _COUNTRY_PATTERNS_RE:
         if pat.search(lowered):
             return code
-    m = _NUTS_PREFIX_RE.match(loc.strip())
+    m = _NUTS_PREFIX_RE.match(stripped)
     if m:
         return m.group(1).upper()
+    m = _TRAILING_ISO_RE.search(stripped)
+    if m:
+        code = m.group(1).upper()
+        if code in _COUNTRY_CODES:
+            return code
     return ""
 
 
@@ -971,8 +979,8 @@ def _phase2_fuzzy_drops(
 
 
 def _enrich_lazy(lf: pl.LazyFrame) -> pl.LazyFrame:
-    """Add ``is_remote`` / ``salary_min`` / ``salary_max`` columns when
-    they aren't already present on the input.
+    """Add ``is_remote`` / ``salary_min`` / ``salary_max`` / ``country_iso``
+    columns when they aren't already present on the input.
 
     Implemented as polars expressions whenever possible so the lazy
     chain stays streamable through ``sink_csv``. ``is_remote`` reads
@@ -981,11 +989,14 @@ def _enrich_lazy(lf: pl.LazyFrame) -> pl.LazyFrame:
     optional, so a deploy that has narrowed the heuristic to title-only
     (no ``ONSITE_KEYWORDS`` exported) still gets a usable column.
 
-    ``salary_summary`` parsing is the only path that has to go through
-    a Python callback (``map_elements``); polars' streaming engine
+    ``salary_summary`` and ``country_iso`` parsing both go through a
+    Python callback (``map_elements``); polars' streaming engine
     doesn't run user functions, so the lazy chain falls back to the
-    eager engine for that ATS slice (rare — most scrapers populate
-    ``salary_min`` / ``salary_max`` upstream and skip this branch).
+    eager engine for an ATS slice that needs either. The country
+    extractor was already used internally for Pass 1 dedup
+    (``_country_iso_from_location``); exposing it as a public column
+    means downstream consumers (D1 sync, R2 parquet readers) can
+    filter / facet by ISO code without re-parsing the location string.
     """
     schema_names = lf.collect_schema().names()
 
@@ -1005,6 +1016,13 @@ def _enrich_lazy(lf: pl.LazyFrame) -> pl.LazyFrame:
                 pl.col("_salary_parsed").struct.field("max").alias("salary_max"),
             )
             .drop("_salary_parsed")
+        )
+
+    if "location" in schema_names and "country_iso" not in schema_names:
+        lf = lf.with_columns(
+            pl.col("location")
+            .map_elements(_country_iso_from_location, return_dtype=pl.String)
+            .alias("country_iso")
         )
 
     return lf
