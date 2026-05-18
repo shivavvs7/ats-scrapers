@@ -19,13 +19,16 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import fcntl
 import csv
+import os
 import json
 import re
 import sqlite3
 import sys
 import tempfile
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -371,8 +374,24 @@ CONFIGS: dict[str, dict[str, Any]] = {
         # company/instance/site components). The CSV stores `url` directly.
         "scraper": WorkdayScraper,
         "slug": lambda r: (r.get("url") or "").strip() or None,
+        "kwargs": lambda _r: {
+            "max_fetch_seconds": float(
+                os.environ.get("JOBHIVE_WORKDAY_TENANT_TIMEOUT", "900")
+            ),
+        },
         "csv": "ats-companies/workday.csv",
         "output": "workday/jobs.csv",
+        # Workday descriptions require per-job detail calls. Let the pipeline
+        # consult the disk-backed description cache before issuing those calls;
+        # otherwise Workday hydrates every row inside fetch() and bypasses cache.
+        "defer_descriptions_to_cache": True,
+        # Rehydrating hundreds of thousands of cached descriptions turns the
+        # daily Workday listing refresh into a multi-hour CSV rewrite. Keep the
+        # main run listing-only; description enrichment needs a separate job.
+        "skip_description_enrichment": True,
+        # Workday can take longer than the publish window on bad API days. Keep
+        # publishing the previous stable jobs.csv while a replacement is built.
+        "publish_previous_while_running": True,
     },
     "bamboohr": {
         "scraper": BambooHRScraper,
@@ -529,6 +548,10 @@ CONFIGS: dict[str, dict[str, Any]] = {
         # country exceeds the 10k pagination cap.
         "scraper": EuresScraper, "singleton": True,
         "output": "eures/jobs.csv",
+        # The pre-detail-fallback EURES CSV truncated descriptions at
+        # 500 chars. Do not reuse that legacy file as a cache, otherwise
+        # a full rerun would just preserve the truncated descriptions.
+        "skip_description_cache_if_max_len_lte": 500,
     },
     # Direct-posting providers from PR #15 — each is a single global
     # endpoint (slug ignored). Pass any value (e.g. ``"any"``) when
@@ -536,7 +559,6 @@ CONFIGS: dict[str, dict[str, Any]] = {
     # per-tenant CSV is required.
     "builtin": {
         # US tech jobs aggregator. ~3-6k live jobs depending on the day.
-        # Optional Firecrawl detail-page enrichment via env var.
         "scraper": BuiltInScraper, "singleton": True,
         "output": "builtin/jobs.csv",
     },
@@ -646,6 +668,36 @@ JOB_CSV_FIELDS = [
     "department", "team", "description", "posted_at",
     "requisition_id", "apply_url", "commitment", "raw",
 ]
+STREAM_DESCRIPTION_CONCURRENCY = 8
+
+
+@contextmanager
+def _pipeline_lock(ats: str):
+    """Prevent concurrent runs of the same ATS pipeline.
+
+    Cron can start a new daily run while a previous long runner is still
+    writing `{ats}/.jobs.csv.tmp`. The publish step correctly refuses to
+    publish while that temp output exists, so overlapping runs can block
+    deployment for days. `flock` releases automatically if the process dies.
+    """
+    lock_path = Path(tempfile.gettempdir()) / f"jobhive-run-pipeline-{ats}.lock"
+    with lock_path.open("a+") as fh:
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            fh.seek(0)
+            owner = fh.read().strip() or "unknown pid"
+            print(f"[{ats}] another run is already active ({owner}); skipping.")
+            yield False
+            return
+        fh.seek(0)
+        fh.truncate()
+        fh.write(f"pid={os.getpid()} started_at={time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n")
+        fh.flush()
+        try:
+            yield True
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
 
 class DescriptionCache:
@@ -776,6 +828,25 @@ def _load_description_cache(path: Path) -> DescriptionCache:
     return cache
 
 
+def _descriptions_look_capped(path: Path, max_len: int) -> bool:
+    if not path.exists():
+        return False
+
+    found_description = False
+    try:
+        with path.open(newline="") as fh:
+            for row in csv.DictReader(fh):
+                description = (row.get("description") or "").strip()
+                if not description:
+                    continue
+                found_description = True
+                if len(description) > max_len:
+                    return False
+    except (OSError, csv.Error):
+        return False
+    return found_description
+
+
 def _cached_description(job: Job, cache: DescriptionCache) -> str | None:
     return cache.get(job)
 
@@ -784,13 +855,13 @@ async def _ensure_description(
     scraper: BaseScraper,
     job: Job,
     cache: DescriptionCache,
-) -> None:
+) -> str:
     cached = _cached_description(job, cache)
     if cached:
         job.description = cached
-        return
+        return "cache"
     if job.description:
-        return
+        return "present"
     try:
         description = await asyncio.to_thread(scraper.get_description, job)
     except Exception as exc:
@@ -798,10 +869,12 @@ async def _ensure_description(
             "  description fetch failed for "
             f"{job.url}: {type(exc).__name__}: {str(exc)[:200]}"
         )
-        return
+        return "error"
     if description:
         job.description = description[:25_000]
         cache.set(job, job.description)
+        return "fetched"
+    return "missing"
 
 
 def _job_to_row(job: Job) -> dict[str, Any]:
@@ -894,9 +967,22 @@ async def run(ats: str, concurrency: int, max_tenants: int | None, timeout: floa
 
     output_path = DATA_ROOT / cfg["output"]
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_output_path = output_path.with_name(f".{output_path.name}.tmp")
+    if cfg.get("publish_previous_while_running"):
+        tmp_output_path = output_path.with_name(
+            f".{output_path.name}.{os.getpid()}.active.tmp"
+        )
+    else:
+        tmp_output_path = output_path.with_name(f".{output_path.name}.tmp")
     uses_streaming = bool(cfg.get("singleton") and hasattr(cfg["scraper"], "fetch_stream"))
-    description_cache = _load_description_cache(output_path)
+    cache_cap = cfg.get("skip_description_cache_if_max_len_lte")
+    if isinstance(cache_cap, int) and _descriptions_look_capped(output_path, cache_cap):
+        print(
+            f"[{ats}] Skipping previous description cache because "
+            f"descriptions look capped at <= {cache_cap} chars"
+        )
+        description_cache = DescriptionCache()
+    else:
+        description_cache = _load_description_cache(output_path)
     if description_cache.count:
         print(f"[{ats}] Loaded {description_cache.count:,} cached description keys")
     seen_keys: set[tuple[str, str]] = set()  # (company, ats_id) for cross-tenant dedup
@@ -917,52 +1003,126 @@ async def run(ats: str, concurrency: int, max_tenants: int | None, timeout: floa
             # RSS in legacy mode, exceeding the VPS RAM budget.
             if uses_streaming:
                 scraper = cfg["scraper"](ats, timeout=timeout)
+                pending_descriptions: set[asyncio.Task[Job]] = set()
+
+                def write_streamed_job(job: Job) -> None:
+                    writer.writerow(_job_to_row(job))
+                    counts["jobs"] += 1
+                    # Periodic flush so the file is consultable while
+                    # the long-running scrape is still in flight.
+                    if counts["jobs"] % 10_000 == 0:
+                        f.flush()
+                        elapsed = time.time() - t0
+                        print(
+                            f"  [{ats}] streamed {counts['jobs']:,} jobs in "
+                            f"{elapsed:.0f}s",
+                        )
+
+                async def enrich_missing_stream_description(job: Job) -> Job:
+                    await _ensure_description(scraper, job, description_cache)
+                    return job
+
+                async def drain_description_tasks(*, all_tasks: bool = False) -> None:
+                    nonlocal pending_descriptions
+                    if not pending_descriptions:
+                        return
+                    done, pending_descriptions = await asyncio.wait(
+                        pending_descriptions,
+                        return_when=(
+                            asyncio.ALL_COMPLETED
+                            if all_tasks
+                            else asyncio.FIRST_COMPLETED
+                        ),
+                    )
+                    for task in done:
+                        write_streamed_job(task.result())
+
                 try:
                     async for job in scraper.fetch_stream():
-                        await _ensure_description(scraper, job, description_cache)
-                        writer.writerow(_job_to_row(job))
-                        counts["jobs"] += 1
-                        # Periodic flush so the file is consultable while
-                        # the long-running scrape is still in flight.
-                        if counts["jobs"] % 10_000 == 0:
-                            f.flush()
-                            elapsed = time.time() - t0
-                            print(
-                                f"  [{ats}] streamed {counts['jobs']:,} jobs in "
-                                f"{elapsed:.0f}s",
+                        cached = _cached_description(job, description_cache)
+                        if cached:
+                            job.description = cached
+                            write_streamed_job(job)
+                        elif job.description:
+                            write_streamed_job(job)
+                        else:
+                            pending_descriptions.add(
+                                asyncio.create_task(
+                                    enrich_missing_stream_description(job)
+                                )
                             )
+                            if (
+                                len(pending_descriptions)
+                                >= STREAM_DESCRIPTION_CONCURRENCY
+                            ):
+                                await drain_description_tasks()
+                    await drain_description_tasks(all_tasks=True)
                     counts["success"] = 1
                 except CompanyNotFoundError:
+                    for task in pending_descriptions:
+                        task.cancel()
                     counts["not_found"] = 1
                 except Exception as exc:
+                    for task in pending_descriptions:
+                        task.cancel()
                     counts["error"] = 1
                     print(f"  [{ats}] streaming failed: {type(exc).__name__}: "
                           f"{str(exc)[:200]}")
             else:
                 async def task(slug: str, kw: dict[str, Any]) -> None:
+                    started = time.time()
                     async with sem:
                         _, scraper, jobs, err = await _run_scraper(
                             cfg["scraper"],
                             slug,
                             kw,
                             timeout,
+                            include_descriptions=not bool(
+                                cfg.get("defer_descriptions_to_cache")
+                            ),
                         )
                     if err == "not_found":
                         counts["not_found"] += 1
                         return
                     if err:
                         counts["error"] += 1
+                        elapsed = time.time() - started
+                        print(
+                            f"  [{ats}] tenant failed after {elapsed:.0f}s: "
+                            f"{slug} ({err})"
+                        )
                         return
                     counts["success"] += 1
+                    desc_stats = {
+                        "cache": 0,
+                        "present": 0,
+                        "fetched": 0,
+                        "missing": 0,
+                        "error": 0,
+                    }
                     for job in jobs:
                         key = (job.company, job.ats_id)
                         if key in seen_keys:
                             continue
                         seen_keys.add(key)
-                        if scraper is not None:
-                            await _ensure_description(scraper, job, description_cache)
+                        if scraper is not None and not cfg.get("skip_description_enrichment"):
+                            desc_status = await _ensure_description(
+                                scraper, job, description_cache
+                            )
+                            desc_stats[desc_status] += 1
                         writer.writerow(_job_to_row(job))
                         counts["jobs"] += 1
+                    elapsed = time.time() - started
+                    if elapsed >= float(cfg.get("slow_tenant_log_seconds", 300)):
+                        print(
+                            f"  [{ats}] slow tenant {slug}: {elapsed:.0f}s, "
+                            f"{len(jobs):,} jobs, descriptions "
+                            f"cache={desc_stats['cache']:,} "
+                            f"present={desc_stats['present']:,} "
+                            f"fetched={desc_stats['fetched']:,} "
+                            f"missing={desc_stats['missing']:,} "
+                            f"errors={desc_stats['error']:,}"
+                        )
 
                 # Process tasks in batches and flush periodically
                 batch_size = 50
@@ -1025,7 +1185,10 @@ def main() -> int:
     parser.add_argument("--max-tenants", type=int, default=None)
     parser.add_argument("--timeout", type=float, default=30.0)
     args = parser.parse_args()
-    return asyncio.run(run(args.ats, args.concurrency, args.max_tenants, args.timeout))
+    with _pipeline_lock(args.ats) as acquired:
+        if not acquired:
+            return 0
+        return asyncio.run(run(args.ats, args.concurrency, args.max_tenants, args.timeout))
 
 
 if __name__ == "__main__":
