@@ -263,7 +263,7 @@ class BuiltInScraper(BaseScraper):
         if find_spec("httpcloak") is None:
             raise ScraperError(
                 "Built In's 403 fallback needs httpcloak — "
-                "`pip install jobhive[scrapers]`."
+                "`pip install jobhive-py[scrapers]`."
             )
 
         last_status: int | None = None

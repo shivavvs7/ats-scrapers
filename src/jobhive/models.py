@@ -84,7 +84,6 @@ class ATSType(StrEnum):
     BAMBOOHR = "bamboohr"
     BREEZY = "breezy"
     JAZZHR = "jazzhr"
-    JOBVITE = "jobvite"
     RECRUITEE = "recruitee"
     TALEO = "taleo"
     TEAMTAILOR = "teamtailor"

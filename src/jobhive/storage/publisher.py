@@ -139,7 +139,7 @@ class DatasetPublisher:
             except ImportError as exc:
                 raise StorageError(
                     "pyarrow is required when write_parquet=True. "
-                    "Install with `pip install jobhive[publish]`."
+                    "Install with `pip install jobhive-py[publish]`."
                 ) from exc
 
     def publish_from_directory(
@@ -544,7 +544,7 @@ ATS_DEDUP_PRIORITY: dict[str, int] = {
     "amazon": 1, "apple": 1, "google": 1, "meta": 1, "tesla": 1,
     "tiktok": 1, "uber": 1,
     # Hybrid jobboards
-    "welcometothejungle": 3, "mercor": 3, "gem": 3, "jobvite": 3,
+    "welcometothejungle": 3, "mercor": 3, "gem": 3,
     # Sourcing/matching layer that mirrors others
     "eightfold": 5,
     # National public-sector aggregators — government-curated but the

@@ -302,7 +302,7 @@ class EightfoldScraper(BaseScraper):
         except ImportError as exc:
             raise ScraperError(
                 "httpcloak required for this tenant; install with "
-                "`pip install httpcloak` or jobhive[scrapers]"
+                "`pip install httpcloak` or `pip install jobhive-py[scrapers]`"
             ) from exc
 
         first = self._fetch_page_httpcloak(start=0)

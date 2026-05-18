@@ -555,7 +555,7 @@ class AvatureScraper(BaseScraper):
         except ImportError as exc:  # pragma: no cover
             raise ScraperError(
                 "Avature scraper requires beautifulsoup4. Install with "
-                "`pip install jobhive[scrapers]` or `pip install beautifulsoup4`."
+                "`pip install jobhive-py[scrapers]` or `pip install beautifulsoup4`."
             ) from exc
 
         soup = BeautifulSoup(html_text, "html.parser")

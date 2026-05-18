@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "jobhive-py"
 version = "0.1.0"
-description = "3.3M+ live jobs from 400 000+ companies, scraped directly from ATS sources. The open dataset and toolkit for job market data."
+description = "3.2M+ live jobs from 86 000+ companies, scraped directly from ATS sources. The open dataset and toolkit for job market data."
 readme = "README.md"
 license = { text = "MIT" }
 authors = [
