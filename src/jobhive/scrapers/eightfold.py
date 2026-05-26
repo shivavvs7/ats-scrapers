@@ -215,7 +215,7 @@ class EightfoldScraper(BaseScraper):
         data = payload.get("data") or {}
         desc_html = data.get("jobDescription")
         if isinstance(desc_html, str) and desc_html.strip() and not job.description:
-            job.description = _strip_html(desc_html)[:25_000] or None
+            job.description = _html_unescape_for_desc(desc_html, cap=25_000) or None
 
     async def _fetch_page_httpx(
         self, client: httpx.AsyncClient, *, start: int
@@ -427,6 +427,20 @@ def _position_id_from_url(url: object) -> str | None:
     s = str(url).rstrip("/")
     tail = s.rsplit("/", 1)[-1]
     return tail if tail.isdigit() else None
+
+
+def _html_unescape_for_desc(value: object, *, cap: int = 25_000) -> str | None:
+    """Unescape HTML entities and trim/cap, but keep tags intact so the
+    post-scrape markdownify pass can preserve paragraph and list structure.
+    Replaces the legacy _strip_html/_html_to_text path for descriptions
+    only — title/company/salary fields still use the strip variant."""
+    import html as _h
+    if not isinstance(value, str):
+        return None
+    out = _h.unescape(value).strip()
+    if not out:
+        return None
+    return out[:cap]
 
 
 def _strip_html(text: str) -> str:
