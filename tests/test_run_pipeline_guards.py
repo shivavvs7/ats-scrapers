@@ -76,6 +76,15 @@ def test_provider_slug_normalizers_match_current_company_csv_shape() -> None:
     }
     assert runner._avature_slug(avature_subdomain_row) == "bloomberg"
 
+    recruitee_custom_domain_row = {
+        "name": "Livestorm",
+        "slug": "livestorm",
+        "url": "https://jobs.livestorm.co",
+    }
+    assert runner._recruitee_slug(recruitee_custom_domain_row) == (
+        "https://jobs.livestorm.co"
+    )
+
     avature_custom_path_row = {
         "name": "Premium Retail Services",
         "slug": "premium",
