@@ -53,6 +53,7 @@ from jobhive.scrapers import (
     GetOnBrdScraper,
     GoogleScraper,
     GreenhouseScraper,
+    InfoJobsSpainScraper,
     JazzHRScraper,
     JobsChScraper,
     JobsCzScraper,
@@ -596,6 +597,11 @@ CONFIGS: dict[str, dict[str, Any]] = {
         # jobs.ch — Switzerland's largest direct-posting board. ~50k live.
         "scraper": JobsChScraper, "singleton": True,
         "output": "jobsch/jobs.csv",
+    },
+    "infojobs_es": {
+        # InfoJobs Spain - Spanish direct-posting job board. ~70k live.
+        "scraper": InfoJobsSpainScraper, "singleton": True,
+        "output": "infojobs_es/jobs.csv",
     },
     "jobs_cz": {
         # jobs.cz - Czech Republic's largest direct-posting board. ~10k live via seeded search.
