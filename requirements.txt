@@ -1,6 +1,8 @@
-jobhive-py>=0.1.0
 fastapi
 uvicorn[standard]
 pandas
 httpx
 pydantic>=2.6
+aiohttp>=3.9
+beautifulsoup4>=4.12
+html2text>=2024.0
