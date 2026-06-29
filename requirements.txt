@@ -1,0 +1,6 @@
+jobhive-py
+fastapi
+uvicorn[standard]
+pandas
+httpx
+pydantic>=2.6
