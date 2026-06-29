@@ -42,7 +42,6 @@ user_data/
 yc/
 z_searxng_instances.json
 env.example
-main.py
 company_dictionary.txt
 missing_locations.json
 new_ai.csv
