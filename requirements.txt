@@ -1,4 +1,4 @@
-jobhive-py
+jobhive-py>=0.1.0
 fastapi
 uvicorn[standard]
 pandas
