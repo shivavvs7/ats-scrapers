@@ -7,29 +7,20 @@ app = FastAPI()
 
 MANIFEST_URL = "https://storage.stapply.ai/jobhive/v1/manifest.json"
 
-# ATS types this app knows how to display. Any ATS in the live
-# manifest that isn't in this list is simply skipped, instead of
-# crashing the whole request (the manifest is a live feed and can
-# add new ATS types before the installed library knows about them).
-KNOWN_ATS = {
-    "ashby", "avature", "cornerstone", "eightfold", "gem", "greenhouse",
-    "icims", "join_com", "lever", "mercor", "oracle", "personio", "phenom",
-    "pinpoint", "recruiterbox", "rippling", "smartrecruiters",
-    "successfactors", "workable", "workday", "amazon", "apple", "google",
-    "meta", "tesla", "tiktok", "uber", "usajobs", "bundesagentur",
-    "arbetsformedlingen", "eures", "welcometothejungle", "getonbrd",
-    "wanted", "remoteok", "weworkremotely", "programathor", "builtin",
-    "jobsch", "manfred", "thehub", "themuse", "ycombinator", "wellfound",
-    "bamboohr", "breezy", "jazzhr", "jobvite", "recruitee", "taleo",
-    "teamtailor",
+# Limit to smaller, reliable ATS feeds to avoid exhausting memory
+# on Render's free tier. Skip huge feeds like eures, workday, etc.
+SAFE_ATS = {
+    "greenhouse", "lever", "ashby", "smartrecruiters",
+    "workable", "personio", "recruitee", "teamtailor",
+    "breezy", "bamboohr",
 }
 
 _cache = {"jobs": None}
 
 
 def load_jobs() -> pd.DataFrame:
-    """Fetch the manifest, then download CSVs for every known ATS
-    and combine them into one DataFrame. Cached in memory after first load."""
+    """Fetch the manifest, then download CSVs for a curated set of
+    smaller ATS platforms and combine them. Cached in memory after first load."""
     if _cache["jobs"] is not None:
         return _cache["jobs"]
 
@@ -39,7 +30,7 @@ def load_jobs() -> pd.DataFrame:
 
         frames = []
         for ats_name, info in by_ats.items():
-            if ats_name not in KNOWN_ATS:
+            if ats_name not in SAFE_ATS:
                 continue
             csv_url = info.get("csv")
             if not csv_url:
@@ -99,8 +90,13 @@ HTML = """
       <option value="greenhouse">Greenhouse</option>
       <option value="lever">Lever</option>
       <option value="ashby">Ashby</option>
-      <option value="workday">Workday</option>
       <option value="smartrecruiters">SmartRecruiters</option>
+      <option value="workable">Workable</option>
+      <option value="personio">Personio</option>
+      <option value="recruitee">Recruitee</option>
+      <option value="teamtailor">Teamtailor</option>
+      <option value="breezy">Breezy</option>
+      <option value="bamboohr">BambooHR</option>
     </select>
     <input id="location" type="text" placeholder="Location (e.g. Paris)" />
     <button onclick="search()">Search</button>
