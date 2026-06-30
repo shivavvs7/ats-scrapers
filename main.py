@@ -11,7 +11,7 @@ MANIFEST_URL = "https://storage.stapply.ai/jobhive/v1/manifest.json"
 # Render's free tier memory limit (512MB).
 SAFE_ATS = {
     "mercor", "manfred", "taleo", "cornerstone", "pinpoint",
-    "recruitee", "gem", "thehub", "getonbrd", "weworkremotely",
+    "recruitee", "gem", "teamtailor", "getonbrd", "weworkremotely",
 }
 
 _cache = {"jobs": None}
