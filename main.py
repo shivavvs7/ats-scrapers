@@ -1,21 +1,44 @@
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.responses import HTMLResponse
+import httpx
 import jobhive
-from jobhive.manifest import ATSType
+import jobhive.client as _jh_client
+from jobhive.manifest import ATSType, Manifest, DEFAULT_MANIFEST_URL
+from jobhive.exceptions import ManifestError
 
 app = FastAPI()
 
-# Patch: the live jobhive manifest sometimes includes ATS types
-# (e.g. "beisen") that this installed version's enum doesn't know
-# about yet. Map any unknown values to "custom" so search doesn't crash.
-_known = {e.value for e in ATSType}
-_extra_unknown_types = ["beisen"]
-for val in _extra_unknown_types:
-    if val not in _known:
+# Pydantic v2's ModelMetaclass silently drops __setattr__ on BaseModel subclasses,
+# so we cannot patch Manifest.fetch directly on the class. Instead, replace the
+# `Manifest` name inside jobhive.client's module namespace — that's where the call
+# `Manifest.fetch(url, client=...)` is resolved at runtime.
+_known_ats = {e.value for e in ATSType}
+
+class _PatchedManifest:
+    """Drop-in replacement for Manifest used only for its fetch() classmethod."""
+
+    @staticmethod
+    def fetch(url=DEFAULT_MANIFEST_URL, *, client=None, timeout=30.0):
+        owns_client = client is None
+        _client = client or httpx.Client(timeout=timeout, follow_redirects=True)
         try:
-            ATSType._value2member_map_[val] = ATSType.custom
-        except Exception:
-            pass
+            response = _client.get(url)
+            response.raise_for_status()
+            data = response.json()
+            if "by_ats" in data:
+                data["by_ats"] = {
+                    k: v for k, v in data["by_ats"].items() if k in _known_ats
+                }
+            return Manifest.model_validate(data)
+        except httpx.HTTPError as exc:
+            raise ManifestError(f"Failed to fetch manifest from {url}: {exc}") from exc
+        except ValueError as exc:
+            raise ManifestError(f"Manifest at {url} is not valid JSON or schema: {exc}") from exc
+        finally:
+            if owns_client:
+                _client.close()
+
+_jh_client.Manifest = _PatchedManifest
 
 HTML = """
 <!DOCTYPE html>
@@ -116,7 +139,7 @@ def search(
     query: str = Query(...),
     ats: str = Query(None),
     location: str = Query(None),
-    limit: int = Query(20)
+    limit: int = Query(50, le=100)
 ):
     try:
         df = jobhive.search(query=query, ats=ats, location=location)
