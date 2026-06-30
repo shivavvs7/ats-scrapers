@@ -1,44 +1,62 @@
+import httpx
+import pandas as pd
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.responses import HTMLResponse
-import httpx
-import jobhive
-import jobhive.client as _jh_client
-from jobhive.manifest import ATSType, Manifest, DEFAULT_MANIFEST_URL
-from jobhive.exceptions import ManifestError
 
 app = FastAPI()
 
-# Pydantic v2's ModelMetaclass silently drops __setattr__ on BaseModel subclasses,
-# so we cannot patch Manifest.fetch directly on the class. Instead, replace the
-# `Manifest` name inside jobhive.client's module namespace — that's where the call
-# `Manifest.fetch(url, client=...)` is resolved at runtime.
-_known_ats = {e.value for e in ATSType}
+MANIFEST_URL = "https://storage.stapply.ai/jobhive/v1/manifest.json"
 
-class _PatchedManifest:
-    """Drop-in replacement for Manifest used only for its fetch() classmethod."""
+# ATS types this app knows how to display. Any ATS in the live
+# manifest that isn't in this list is simply skipped, instead of
+# crashing the whole request (the manifest is a live feed and can
+# add new ATS types before the installed library knows about them).
+KNOWN_ATS = {
+    "ashby", "avature", "cornerstone", "eightfold", "gem", "greenhouse",
+    "icims", "join_com", "lever", "mercor", "oracle", "personio", "phenom",
+    "pinpoint", "recruiterbox", "rippling", "smartrecruiters",
+    "successfactors", "workable", "workday", "amazon", "apple", "google",
+    "meta", "tesla", "tiktok", "uber", "usajobs", "bundesagentur",
+    "arbetsformedlingen", "eures", "welcometothejungle", "getonbrd",
+    "wanted", "remoteok", "weworkremotely", "programathor", "builtin",
+    "jobsch", "manfred", "thehub", "themuse", "ycombinator", "wellfound",
+    "bamboohr", "breezy", "jazzhr", "jobvite", "recruitee", "taleo",
+    "teamtailor",
+}
 
-    @staticmethod
-    def fetch(url=DEFAULT_MANIFEST_URL, *, client=None, timeout=30.0):
-        owns_client = client is None
-        _client = client or httpx.Client(timeout=timeout, follow_redirects=True)
-        try:
-            response = _client.get(url)
-            response.raise_for_status()
-            data = response.json()
-            if "by_ats" in data:
-                data["by_ats"] = {
-                    k: v for k, v in data["by_ats"].items() if k in _known_ats
-                }
-            return Manifest.model_validate(data)
-        except httpx.HTTPError as exc:
-            raise ManifestError(f"Failed to fetch manifest from {url}: {exc}") from exc
-        except ValueError as exc:
-            raise ManifestError(f"Manifest at {url} is not valid JSON or schema: {exc}") from exc
-        finally:
-            if owns_client:
-                _client.close()
+_cache = {"jobs": None}
 
-_jh_client.Manifest = _PatchedManifest
+
+def load_jobs() -> pd.DataFrame:
+    """Fetch the manifest, then download CSVs for every known ATS
+    and combine them into one DataFrame. Cached in memory after first load."""
+    if _cache["jobs"] is not None:
+        return _cache["jobs"]
+
+    with httpx.Client(timeout=30) as client:
+        manifest = client.get(MANIFEST_URL).json()
+        by_ats = manifest.get("by_ats", {})
+
+        frames = []
+        for ats_name, info in by_ats.items():
+            if ats_name not in KNOWN_ATS:
+                continue
+            csv_url = info.get("csv_url") or info.get("url")
+            if not csv_url:
+                continue
+            try:
+                resp = client.get(csv_url)
+                resp.raise_for_status()
+                df = pd.read_csv(pd.io.common.BytesIO(resp.content))
+                df["ats_type"] = ats_name
+                frames.append(df)
+            except Exception:
+                continue
+
+        jobs = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+        _cache["jobs"] = jobs
+        return jobs
+
 
 HTML = """
 <!DOCTYPE html>
@@ -72,22 +90,17 @@ HTML = """
 <body>
   <header>
     <h1>🐝 JobHive Board</h1>
-    <span style="font-size:13px;color:#888;">Live jobs from 47 ATS platforms</span>
+    <span style="font-size:13px;color:#888;">Live jobs from ATS platforms</span>
   </header>
   <div class="search-bar">
     <input id="q" type="text" placeholder="Job title, skill..." value="engineer" />
-    <select id="ats" required>
-      <option value="" disabled selected>Select ATS *</option>
+    <select id="ats">
+      <option value="">All ATS</option>
       <option value="greenhouse">Greenhouse</option>
       <option value="lever">Lever</option>
       <option value="ashby">Ashby</option>
       <option value="workday">Workday</option>
       <option value="smartrecruiters">SmartRecruiters</option>
-      <option value="bamboohr">BambooHR</option>
-      <option value="workable">Workable</option>
-      <option value="recruitee">Recruitee</option>
-      <option value="personio">Personio</option>
-      <option value="teamtailor">Teamtailor</option>
     </select>
     <input id="location" type="text" placeholder="Location (e.g. Paris)" />
     <button onclick="search()">Search</button>
@@ -100,12 +113,9 @@ HTML = """
       const q = document.getElementById('q').value;
       const ats = document.getElementById('ats').value;
       const loc = document.getElementById('location').value;
-      if (!ats) {
-        document.getElementById('results').innerHTML = '<p class="status">Please select an ATS platform first.</p>';
-        return;
-      }
       document.getElementById('results').innerHTML = '<p class="status">Loading...</p>';
-      const params = new URLSearchParams({ query: q, ats });
+      const params = new URLSearchParams({ query: q });
+      if (ats) params.append('ats', ats);
       if (loc) params.append('location', loc);
       const res = await fetch('/api/search?' + params);
       if (!res.ok) {
@@ -121,8 +131,8 @@ HTML = """
       }
       document.getElementById('results').innerHTML = jobs.map(j => `
         <div class="job-card">
-          <h2>${j.title}</h2>
-          <p class="company">${j.company} &middot; ${j.ats_type}</p>
+          <h2>${j.title || ''}</h2>
+          <p class="company">${j.company || ''} &middot; ${j.ats_type || ''}</p>
           <div class="tags">
             ${j.location ? `<span class="tag">${j.location}</span>` : ''}
             ${j.is_remote ? '<span class="tag remote">Remote</span>' : ''}
@@ -138,28 +148,39 @@ HTML = """
 </html>
 """
 
-# Single cached client — reuses the downloaded ATS slice across requests.
-# prefer_parquet=False uses CSV slices, which are smaller peak-memory on
-# the free 512 MB Render instance.
-_client = jobhive.Client(prefer_parquet=False)
 
 @app.get("/", response_class=HTMLResponse)
 def index():
     return HTML
 
+
 @app.get("/api/search")
 def search(
     query: str = Query(...),
-    ats: str = Query(..., description="ATS platform is required to avoid loading the full dataset"),
+    ats: str = Query(None),
     location: str = Query(None),
-    limit: int = Query(50, le=100)
+    limit: int = Query(50, le=100),
 ):
     try:
-        df = _client.search(query, ats=ats, location=location)
+        df = load_jobs()
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"jobhive data error: {e}")
-    df = df.head(limit)
+        raise HTTPException(status_code=502, detail=f"Failed to load job data: {e}")
+
+    if df.empty:
+        return []
+
+    mask = pd.Series(True, index=df.index)
+
+    if query and "title" in df.columns:
+        mask &= df["title"].astype(str).str.contains(query, case=False, na=False)
+    if ats and "ats_type" in df.columns:
+        mask &= df["ats_type"].astype(str).str.lower() == ats.lower()
+    if location and "location" in df.columns:
+        mask &= df["location"].astype(str).str.contains(location, case=False, na=False)
+
+    result = df[mask].head(limit)
+
     cols = ["title", "company", "ats_type", "location", "is_remote",
             "employment_type", "salary_summary", "apply_url"]
-    df = df[[c for c in cols if c in df.columns]]
-    return df.fillna("").to_dict(orient="records")
+    result = result[[c for c in cols if c in result.columns]]
+    return result.fillna("").to_dict(orient="records")

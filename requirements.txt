@@ -1,7 +1,4 @@
-jobhive-py
 fastapi
 uvicorn[standard]
 pandas
-pyarrow
 httpx
-pydantic>=2.6
