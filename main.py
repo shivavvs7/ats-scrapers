@@ -173,3 +173,18 @@ def search(
             "employment_type", "salary_summary", "apply_url"]
     result = result[[c for c in cols if c in result.columns]]
     return result.fillna("").to_dict(orient="records")
+
+
+@app.get("/api/debug")
+def debug():
+    try:
+        df = load_jobs()
+    except Exception as e:
+        return {"error": str(e)}
+
+    return {
+        "total_rows": len(df),
+        "columns": list(df.columns),
+        "ats_counts": df["ats_type"].value_counts().to_dict() if "ats_type" in df.columns else {},
+        "sample_titles": df["title"].head(10).tolist() if "title" in df.columns else [],
+    }
