@@ -1,8 +1,21 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, HTTPException
 from fastapi.responses import HTMLResponse
 import jobhive
+from jobhive.manifest import ATSType
 
 app = FastAPI()
+
+# Patch: the live jobhive manifest sometimes includes ATS types
+# (e.g. "beisen") that this installed version's enum doesn't know
+# about yet. Map any unknown values to "custom" so search doesn't crash.
+_known = {e.value for e in ATSType}
+_extra_unknown_types = ["beisen"]
+for val in _extra_unknown_types:
+    if val not in _known:
+        try:
+            ATSType._value2member_map_[val] = ATSType.custom
+        except Exception:
+            pass
 
 HTML = """
 <!DOCTYPE html>
@@ -64,6 +77,12 @@ HTML = """
       if (ats) params.append('ats', ats);
       if (loc) params.append('location', loc);
       const res = await fetch('/api/search?' + params);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        document.getElementById('results').innerHTML =
+          '<p class="status">Error: ' + (err.detail || res.statusText) + '</p>';
+        return;
+      }
       const jobs = await res.json();
       if (!jobs.length) {
         document.getElementById('results').innerHTML = '<p class="status">No results found.</p>';
@@ -99,7 +118,10 @@ def search(
     location: str = Query(None),
     limit: int = Query(20)
 ):
-    df = jobhive.search(query=query, ats=ats, location=location)
+    try:
+        df = jobhive.search(query=query, ats=ats, location=location)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"jobhive data error: {e}")
     df = df.head(limit)
     cols = ["title", "company", "ats_type", "location", "is_remote",
             "employment_type", "salary_summary", "apply_url"]
