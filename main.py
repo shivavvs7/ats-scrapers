@@ -7,20 +7,17 @@ app = FastAPI()
 
 MANIFEST_URL = "https://storage.stapply.ai/jobhive/v1/manifest.json"
 
-# Limit to smaller, reliable ATS feeds to avoid exhausting memory
-# on Render's free tier. Skip huge feeds like eures, workday, etc.
+# Only genuinely small ATS feeds (under ~50MB) to stay within
+# Render's free tier memory limit (512MB).
 SAFE_ATS = {
-    "greenhouse", "lever", "ashby", "smartrecruiters",
-    "workable", "personio", "recruitee", "teamtailor",
-    "breezy", "bamboohr",
+    "mercor", "manfred", "taleo", "cornerstone", "pinpoint",
+    "recruitee", "gem", "thehub", "getonbrd", "weworkremotely",
 }
 
 _cache = {"jobs": None}
 
 
 def load_jobs() -> pd.DataFrame:
-    """Fetch the manifest, then download CSVs for a curated set of
-    smaller ATS platforms and combine them. Cached in memory after first load."""
     if _cache["jobs"] is not None:
         return _cache["jobs"]
 
@@ -41,6 +38,7 @@ def load_jobs() -> pd.DataFrame:
                 df = pd.read_csv(pd.io.common.BytesIO(resp.content))
                 df["ats_type"] = ats_name
                 frames.append(df)
+                del resp
             except Exception:
                 continue
 
@@ -87,16 +85,11 @@ HTML = """
     <input id="q" type="text" placeholder="Job title, skill..." value="engineer" />
     <select id="ats">
       <option value="">All ATS</option>
-      <option value="greenhouse">Greenhouse</option>
-      <option value="lever">Lever</option>
-      <option value="ashby">Ashby</option>
-      <option value="smartrecruiters">SmartRecruiters</option>
-      <option value="workable">Workable</option>
-      <option value="personio">Personio</option>
+      <option value="cornerstone">Cornerstone</option>
+      <option value="pinpoint">Pinpoint</option>
       <option value="recruitee">Recruitee</option>
-      <option value="teamtailor">Teamtailor</option>
-      <option value="breezy">Breezy</option>
-      <option value="bamboohr">BambooHR</option>
+      <option value="gem">Gem</option>
+      <option value="taleo">Taleo</option>
     </select>
     <input id="location" type="text" placeholder="Location (e.g. Paris)" />
     <button onclick="search()">Search</button>
