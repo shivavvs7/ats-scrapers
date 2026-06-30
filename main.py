@@ -76,13 +76,18 @@ HTML = """
   </header>
   <div class="search-bar">
     <input id="q" type="text" placeholder="Job title, skill..." value="engineer" />
-    <select id="ats">
-      <option value="">All ATS</option>
+    <select id="ats" required>
+      <option value="" disabled selected>Select ATS *</option>
       <option value="greenhouse">Greenhouse</option>
       <option value="lever">Lever</option>
       <option value="ashby">Ashby</option>
       <option value="workday">Workday</option>
       <option value="smartrecruiters">SmartRecruiters</option>
+      <option value="bamboohr">BambooHR</option>
+      <option value="workable">Workable</option>
+      <option value="recruitee">Recruitee</option>
+      <option value="personio">Personio</option>
+      <option value="teamtailor">Teamtailor</option>
     </select>
     <input id="location" type="text" placeholder="Location (e.g. Paris)" />
     <button onclick="search()">Search</button>
@@ -95,9 +100,12 @@ HTML = """
       const q = document.getElementById('q').value;
       const ats = document.getElementById('ats').value;
       const loc = document.getElementById('location').value;
+      if (!ats) {
+        document.getElementById('results').innerHTML = '<p class="status">Please select an ATS platform first.</p>';
+        return;
+      }
       document.getElementById('results').innerHTML = '<p class="status">Loading...</p>';
-      const params = new URLSearchParams({ query: q });
-      if (ats) params.append('ats', ats);
+      const params = new URLSearchParams({ query: q, ats });
       if (loc) params.append('location', loc);
       const res = await fetch('/api/search?' + params);
       if (!res.ok) {
@@ -130,6 +138,11 @@ HTML = """
 </html>
 """
 
+# Single cached client — reuses the downloaded ATS slice across requests.
+# prefer_parquet=False uses CSV slices, which are smaller peak-memory on
+# the free 512 MB Render instance.
+_client = jobhive.Client(prefer_parquet=False)
+
 @app.get("/", response_class=HTMLResponse)
 def index():
     return HTML
@@ -137,12 +150,12 @@ def index():
 @app.get("/api/search")
 def search(
     query: str = Query(...),
-    ats: str = Query(None),
+    ats: str = Query(..., description="ATS platform is required to avoid loading the full dataset"),
     location: str = Query(None),
     limit: int = Query(50, le=100)
 ):
     try:
-        df = jobhive.search(query=query, ats=ats, location=location)
+        df = _client.search(query, ats=ats, location=location)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"jobhive data error: {e}")
     df = df.head(limit)
