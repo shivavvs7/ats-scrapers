@@ -41,7 +41,7 @@ def load_jobs() -> pd.DataFrame:
         for ats_name, info in by_ats.items():
             if ats_name not in KNOWN_ATS:
                 continue
-            csv_url = info.get("csv_url") or info.get("url")
+            csv_url = info.get("csv")
             if not csv_url:
                 continue
             try:
